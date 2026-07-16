@@ -6,4 +6,6 @@ The MIT License applies to the software source code only. It does not grant righ
 
 The bundled portal demo is fan-theme artwork generated for this project. It is provided as a private demonstration preset. Replace it with artwork you have permission to use before public, commercial, or third-party redistribution. See `references/asset-provenance.md`.
 
+Release asset clarification: This repository does not include the private portal demo described above. The bundled “Morning Mist” and “Warm Sand” presets are original abstract gradient backgrounds generated from the SVG source files documented in `references/asset-provenance.md`.
+
 The project does not redistribute Node.js. At runtime it validates and uses the Node.js executable already signed and bundled inside the user's official Codex application.
