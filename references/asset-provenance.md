@@ -2,6 +2,8 @@
 
 本仓库的两张示例背景均在本项目内以 SVG 源文件生成，不使用照片、角色、Logo、商标、字体或任何外部图片素材。SVG 通过 macOS 系统工具 `sips` 转换为运行时使用的 PNG。
 
+> **NOTICE 说明：** 仓库保留的 NOTICE 中提到的 “bundled portal demo” 不在本仓库或发布包内；当前随仓库分发的示例背景仅为下述“晨雾”和“暖沙”两套原创抽象渐变背景。
+
 ## 晨雾
 
 - 运行时文件：`assets/morning-mist.png`

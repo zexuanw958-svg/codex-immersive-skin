@@ -37,6 +37,7 @@ FILES=(
   "references/generated-assets/warm-sand.svg"
   "references/qa-inventory.md"
   "references/runtime-notes.md"
+  "scripts/analyze-image.mjs"
   "scripts/build-release.sh"
   "scripts/common-macos.sh"
   "scripts/customize-theme-macos.sh"
@@ -49,6 +50,7 @@ FILES=(
   "scripts/verify-dream-skin-macos.sh"
   "scripts/write-theme.mjs"
   "tests/adaptive-theme.test.mjs"
+  "tests/auto-palette.test.mjs"
   "tests/run-tests.sh"
 )
 

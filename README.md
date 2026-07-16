@@ -12,7 +12,7 @@
 [![Tests: Passing](https://img.shields.io/badge/tests-passing-16a34a?style=flat-square)](#-自检与恢复)
 [![Restore: Reversible](https://img.shields.io/badge/restore-reversible-f59e0b?style=flat-square)](#-自检与恢复)
 
-<sub>🎬 更多 AI 工具实战玩法：作者抖音 <strong>@泽轩604</strong>（App 内搜索即达）</sub>
+<sub>🎬 作者抖音：<strong>@泽轩604</strong>（App 内搜索即达）</sub>
 
 <sub><a href="#-30-秒理解">✨ 特点</a> · <a href="#-快速开始">🚀 安装</a> · <a href="#-换成自己的图片">🖼️ 自定义</a> · <a href="#security">🛡️ 安全</a> · <a href="#-常见问题">❓ FAQ</a> · <a href="#-english-summary">English</a></sub>
 
@@ -82,7 +82,9 @@ open "Install Codex Immersive Skin.command"
 
 最省事的方法是双击桌面的定制入口。图片可以是自己拍摄、自己绘制或已获得授权的素材；也可以用豆包、GPT 等工具生成一张新的抽象图或风景图。横向图片效果通常更好，建议宽度 2000 px 以上、左侧保留较安静的区域。
 
-命令行方式支持主题名、浅深色和三种强调色：
+不填写 `--accent`、`--secondary`、`--highlight` 和 `--appearance` 时，脚本会在本机从图片自动提取三种强调色并判断浅色 / 深色；只填写其中一部分时，明确填写的值优先，其余项目继续自动生成。整个过程不需要模型看图。
+
+需要手动覆盖自动结果时，命令行方式支持显式指定主题名、浅深色和三种强调色：
 
 ```bash
 ~/.codex/codex-immersive-skin/scripts/customize-theme-macos.sh \
