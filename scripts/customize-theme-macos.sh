@@ -7,31 +7,38 @@ IMAGE=""
 THEME_NAME=""
 TAGLINE=""
 QUOTE=""
-ACCENT="#7cff46"
-SECONDARY="#36d7e8"
-HIGHLIGHT="#642a8c"
-APPEARANCE="dark"
+ACCENT=""
+SECONDARY=""
+HIGHLIGHT=""
+APPEARANCE=""
 APPLY_NOW="true"
 RESET_DEMO="false"
 
+require_option_value() {
+  [ "$#" -ge 2 ] && [ -n "$2" ] || fail "Option $1 requires a non-empty value."
+  case "$2" in --*) fail "Option $1 requires a non-empty value." ;; esac
+}
+
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --image) IMAGE="${2:-}"; shift 2 ;;
-    --name) THEME_NAME="${2:-}"; shift 2 ;;
-    --tagline) TAGLINE="${2:-}"; shift 2 ;;
-    --quote) QUOTE="${2:-}"; shift 2 ;;
-    --accent) ACCENT="${2:-}"; shift 2 ;;
-    --secondary) SECONDARY="${2:-}"; shift 2 ;;
-    --highlight) HIGHLIGHT="${2:-}"; shift 2 ;;
-    --appearance) APPEARANCE="${2:-}"; shift 2 ;;
+    --image) require_option_value "$@"; IMAGE="$2"; shift 2 ;;
+    --name) require_option_value "$@"; THEME_NAME="$2"; shift 2 ;;
+    --tagline) require_option_value "$@"; TAGLINE="$2"; shift 2 ;;
+    --quote) require_option_value "$@"; QUOTE="$2"; shift 2 ;;
+    --accent) require_option_value "$@"; ACCENT="$2"; shift 2 ;;
+    --secondary) require_option_value "$@"; SECONDARY="$2"; shift 2 ;;
+    --highlight) require_option_value "$@"; HIGHLIGHT="$2"; shift 2 ;;
+    --appearance) require_option_value "$@"; APPEARANCE="$2"; shift 2 ;;
     --no-apply) APPLY_NOW="false"; shift ;;
     --reset-demo) RESET_DEMO="true"; shift ;;
     *) fail "Unknown customize argument: $1" ;;
   esac
 done
 
-[ "$APPEARANCE" = "light" ] || [ "$APPEARANCE" = "dark" ] \
-  || fail "Appearance must be light or dark."
+if [ -n "$APPEARANCE" ]; then
+  [ "$APPEARANCE" = "light" ] || [ "$APPEARANCE" = "dark" ] \
+    || fail "Appearance must be light or dark."
+fi
 
 discover_codex_app
 require_macos_runtime
@@ -60,7 +67,11 @@ else
   image_name="background-$(/bin/date '+%Y%m%d-%H%M%S')-$$.jpg"
   temporary="$THEME_DIR/.${image_name}.tmp.jpg"
   prepared="$THEME_DIR/$image_name"
-  cleanup_temporary() { /bin/rm -f "$temporary"; }
+  theme_write_committed="false"
+  cleanup_temporary() {
+    /bin/rm -f "$temporary"
+    [ "$theme_write_committed" = "true" ] || /bin/rm -f "$prepared"
+  }
   trap cleanup_temporary EXIT
   /usr/bin/sips -s format jpeg -s formatOptions 84 -Z 3200 "$IMAGE" --out "$temporary" >/dev/null \
     || fail "macOS could not convert the selected image. Use PNG, JPEG, HEIC, TIFF, or WebP."
@@ -70,10 +81,45 @@ else
   /bin/mv -f "$temporary" "$prepared"
   /bin/chmod 600 "$prepared"
 
+  style_args=(--image "$prepared" --format tsv)
+  [ -z "$APPEARANCE" ] || style_args+=(--appearance "$APPEARANCE")
+  [ -z "$ACCENT" ] || style_args+=(--accent "$ACCENT")
+  [ -z "$SECONDARY" ] || style_args+=(--secondary "$SECONDARY")
+  [ -z "$HIGHLIGHT" ] || style_args+=(--highlight "$HIGHLIGHT")
+  if ! resolved_output="$(
+    "$NODE" "$SCRIPT_DIR/analyze-image.mjs" "${style_args[@]}"
+    analyzer_status=$?
+    printf '\034'
+    exit "$analyzer_status"
+  )"; then
+    fail "Automatic theme color analysis could not start."
+  fi
+  case "$resolved_output" in
+    *$'\034') ;;
+    *) fail "Automatic theme color analysis returned invalid output." ;;
+  esac
+  resolved_output="${resolved_output%$'\034'}"
+  case "$resolved_output" in
+    *$'\n') resolved_style="${resolved_output%$'\n'}" ;;
+    *) fail "Automatic theme color analysis returned invalid output." ;;
+  esac
+  case "$resolved_style" in
+    *$'\n'*|*$'\r'*) fail "Automatic theme color analysis returned invalid output." ;;
+  esac
+  style_without_tabs="${resolved_style//$'\t'/}"
+  [ "$(( ${#resolved_style} - ${#style_without_tabs} ))" -eq 3 ] \
+    || fail "Automatic theme color analysis returned invalid output."
+  IFS=$'\t' read -r APPEARANCE ACCENT SECONDARY HIGHLIGHT <<EOF
+$resolved_style
+EOF
+  [ -n "$APPEARANCE" ] && [ -n "$ACCENT" ] && [ -n "$SECONDARY" ] && [ -n "$HIGHLIGHT" ] \
+    || fail "Automatic theme color analysis returned incomplete output."
+
   "$NODE" "$SCRIPT_DIR/write-theme.mjs" custom \
     --output-dir "$THEME_DIR" --image "$image_name" \
     --name "$THEME_NAME" --tagline "$TAGLINE" --quote "$QUOTE" --appearance "$APPEARANCE" \
     --accent "$ACCENT" --secondary "$SECONDARY" --highlight "$HIGHLIGHT"
+  theme_write_committed="true"
   /usr/bin/find "$THEME_DIR" -maxdepth 1 -type f -name 'background-*' ! -name "$image_name" -delete
   trap - EXIT
 fi

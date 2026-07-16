@@ -17,6 +17,7 @@ import {
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, "..");
 const analyzer = path.join(root, "scripts", "analyze-image.mjs");
+const customizer = path.join(root, "scripts", "customize-theme-macos.sh");
 const analyzerUrl = pathToFileURL(analyzer).href;
 
 function solidPixels(hex, count = 64) {
@@ -32,6 +33,83 @@ function runAnalyzer(arguments_) {
 
 function warningCount(stderr) {
   return stderr.split("无法从图片自动取色，已使用默认配色。").length - 1;
+}
+
+async function runCustomizerWithSvg(fill, styleArguments = []) {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "dream-skin-customizer-"));
+  try {
+    const home = path.join(directory, "home");
+    const svg = path.join(directory, "source.svg");
+    await fs.mkdir(home);
+    await fs.writeFile(svg, [
+      '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="40">',
+      `<rect width="64" height="40" fill="${fill}"/>`,
+      "</svg>",
+    ].join(""));
+
+    const result = spawnSync("/bin/bash", [
+      customizer,
+      "--image", svg,
+      "--name", "Integration Test Theme",
+      ...styleArguments,
+      "--no-apply",
+    ], {
+      encoding: "utf8",
+      env: { ...process.env, HOME: home },
+    });
+    const themePath = path.join(
+      home,
+      "Library",
+      "Application Support",
+      "CodexImmersiveSkin",
+      "theme",
+      "theme.json",
+    );
+    const themeDirectory = path.dirname(themePath);
+    let theme;
+    try {
+      theme = JSON.parse(await fs.readFile(themePath, "utf8"));
+    } catch (error) {
+      if (result.status === 0) throw error;
+    }
+    let themeFiles = [];
+    let themeDirectoryExists = true;
+    try {
+      themeFiles = await fs.readdir(themeDirectory);
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      themeDirectoryExists = false;
+    }
+    let stateFileExists = true;
+    try {
+      await fs.access(path.join(path.dirname(themeDirectory), "state.json"));
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      stateFileExists = false;
+    }
+    return {
+      result,
+      theme,
+      themeDirectoryExists,
+      stateFileExists,
+      backgroundFiles: themeFiles.filter((file) => file.startsWith("background-")),
+    };
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+}
+
+function assertPairwiseDistinctAndContrasting(theme) {
+  const colors = [theme.colors.accent, theme.colors.secondary, theme.colors.highlight];
+  assert.equal(new Set(colors).size, colors.length, "automatic colors must be pairwise distinct");
+  for (const color of colors) {
+    for (const surface of Object.values(SURFACES[theme.appearance])) {
+      assert.ok(
+        contrastRatio(color, surface) >= 4.5,
+        `${color} must contrast with ${surface} in ${theme.appearance}`,
+      );
+    }
+  }
 }
 
 function create24BitBmp(rows) {
@@ -450,3 +528,74 @@ test("TSV output contains exactly four ordered fields", async () => {
     await fs.rm(directory, { recursive: true, force: true });
   }
 });
+
+test("the real customizer derives a light accessible palette when style flags are omitted", async () => {
+  const { result, theme } = await runCustomizerWithSvg("#f4f1ea");
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(theme.appearance, "light");
+  assert.notDeepEqual(
+    [theme.colors.accent, theme.colors.secondary, theme.colors.highlight],
+    [DEFAULT_STYLE.accent, DEFAULT_STYLE.secondary, DEFAULT_STYLE.highlight],
+  );
+  assertPairwiseDistinctAndContrasting(theme);
+});
+
+test("the real customizer derives a dark accessible palette when style flags are omitted", async () => {
+  const { result, theme } = await runCustomizerWithSvg("#101820");
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(theme.appearance, "dark");
+  assertPairwiseDistinctAndContrasting(theme);
+});
+
+test("the real customizer preserves a full explicit style override", async () => {
+  const { result, theme } = await runCustomizerWithSvg("#f4f1ea", [
+    "--appearance", "dark",
+    "--accent", "#112233",
+    "--secondary", "#445566",
+    "--highlight", "#778899",
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(theme.appearance, "dark");
+  assert.deepEqual(
+    [theme.colors.accent, theme.colors.secondary, theme.colors.highlight],
+    ["#112233", "#445566", "#778899"],
+  );
+});
+
+test("the real customizer combines a partial override with image-derived style", async () => {
+  const { result, theme } = await runCustomizerWithSvg("#f4f1ea", [
+    "--accent", "#123456",
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(theme.colors.accent, "#123456");
+  assert.equal(theme.appearance, "light");
+  assert.notEqual(theme.colors.secondary, DEFAULT_STYLE.secondary);
+  assert.notEqual(theme.colors.highlight, DEFAULT_STYLE.highlight);
+});
+
+test("the real customizer removes its prepared image when explicit color analysis fails", async () => {
+  const { result, backgroundFiles } = await runCustomizerWithSvg("#f4f1ea", [
+    "--accent", "not-a-hex",
+  ]);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /accent must be a six-digit hex color/i);
+  assert.deepEqual(backgroundFiles, []);
+});
+
+for (const option of ["--accent", "--appearance"]) {
+  test(`the real customizer rejects ${option} when the next token is another option`, async () => {
+    const {
+      result,
+      theme,
+      themeDirectoryExists,
+      stateFileExists,
+      backgroundFiles,
+    } = await runCustomizerWithSvg("#f4f1ea", [option]);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, new RegExp(`Option ${option} requires a non-empty value\\.`));
+    assert.equal(theme, undefined);
+    assert.equal(themeDirectoryExists, false);
+    assert.equal(stateFileExists, false);
+    assert.deepEqual(backgroundFiles, []);
+  });
+}
