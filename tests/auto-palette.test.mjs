@@ -20,6 +20,11 @@ const analyzer = path.join(root, "scripts", "analyze-image.mjs");
 const customizer = path.join(root, "scripts", "customize-theme-macos.sh");
 const analyzerUrl = pathToFileURL(analyzer).href;
 
+test("automatic palette surfaces use theme schema names", () => {
+  assert.deepEqual(Object.keys(SURFACES.light), ["background", "panel", "panelAlt"]);
+  assert.deepEqual(Object.keys(SURFACES.dark), ["background", "panel", "panelAlt"]);
+});
+
 function solidPixels(hex, count = 64) {
   const red = Number.parseInt(hex.slice(1, 3), 16);
   const green = Number.parseInt(hex.slice(3, 5), 16);

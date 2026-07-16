@@ -18,12 +18,12 @@ export const SURFACES = Object.freeze({
   light: Object.freeze({
     background: "#e7f0f1",
     panel: "#f8fbfb",
-    raised: "#edf4f4",
+    panelAlt: "#edf4f4",
   }),
   dark: Object.freeze({
     background: "#071116",
     panel: "#0b1a20",
-    raised: "#10272c",
+    panelAlt: "#10272c",
   }),
 });
 
