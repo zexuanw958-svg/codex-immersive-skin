@@ -39,7 +39,7 @@ if /usr/bin/grep -R -n -E '(writeFile|rename|copyFile|rm).*app\.asar' "$ROOT/scr
 fi
 
 "$NODE" "$ROOT/scripts/injector.mjs" --check-payload >/dev/null
-"$NODE" --test "$ROOT/tests/adaptive-theme.test.mjs"
+"$NODE" --test "$ROOT"/tests/*.test.mjs
 
 TMP="$(/usr/bin/mktemp -d /tmp/codex-dream-skin-tests.XXXXXX)"
 trap '/bin/rm -rf "$TMP"' EXIT
