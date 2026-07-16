@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "warm-sand",
+  "name": "暖沙",
+  "appearance": "dark",
+  "brandSubtitle": "CODEX IMMERSIVE SKIN",
+  "tagline": "把夜色调暖一点，再继续写下去。",
+  "projectPrefix": "选择项目 · ",
+  "projectLabel": "◉  选择项目",
+  "statusText": "IMMERSIVE MODE",
+  "quote": "BUILD WITH PATIENCE",
+  "image": "background.png",
+  "colors": {
+    "background": "#17110e",
+    "panel": "#241a15",
+    "panelAlt": "#302119",
+    "accent": "#d99a5e",
+    "accentAlt": "#efb97e",
+    "secondary": "#b9785d",
+    "highlight": "#8f6a78",
+    "text": "#fff4e8",
+    "muted": "#c7aa96",
+    "line": "rgba(217, 154, 94, .28)"
+  }
+}

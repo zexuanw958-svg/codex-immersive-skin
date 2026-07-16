@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1350" viewBox="0 0 2400 1350">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f7fbfc"/>
+      <stop offset="0.48" stop-color="#d5e8e9"/>
+      <stop offset="1" stop-color="#94b8c1"/>
+    </linearGradient>
+    <radialGradient id="haze" cx="0.72" cy="0.28" r="0.62">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.76"/>
+      <stop offset="0.55" stop-color="#c9e2e4" stop-opacity="0.38"/>
+      <stop offset="1" stop-color="#87aeb9" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="ridge" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#7298a3" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#496f79" stop-opacity="0.62"/>
+    </linearGradient>
+  </defs>
+  <rect width="2400" height="1350" fill="url(#sky)"/>
+  <rect width="2400" height="1350" fill="url(#haze)"/>
+  <path d="M0 995 C290 850 565 890 850 1015 C1135 1140 1390 1010 1685 890 C1940 785 2195 815 2400 940 L2400 1350 L0 1350 Z" fill="url(#ridge)"/>
+  <path d="M0 1135 C330 1030 680 1090 1010 1170 C1395 1265 1740 1090 2090 1025 C2215 1000 2320 1008 2400 1038 L2400 1350 L0 1350 Z" fill="#dcebed" fill-opacity="0.72"/>
+  <ellipse cx="1700" cy="430" rx="640" ry="305" fill="#ffffff" fill-opacity="0.18"/>
+  <ellipse cx="1960" cy="585" rx="410" ry="215" fill="#7fa9b3" fill-opacity="0.12"/>
+</svg>

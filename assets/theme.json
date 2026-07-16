@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "morning-mist",
+  "name": "晨雾",
+  "appearance": "light",
+  "brandSubtitle": "CODEX IMMERSIVE SKIN",
+  "tagline": "让熟悉的画面，安静地融入工作台。",
+  "projectPrefix": "选择项目 · ",
+  "projectLabel": "◉  选择项目",
+  "statusText": "IMMERSIVE MODE",
+  "quote": "MAKE SPACE FOR IDEAS",
+  "image": "morning-mist.png",
+  "colors": {
+    "background": "#d9e7e8",
+    "panel": "#f4f8f8",
+    "panelAlt": "#eaf2f2",
+    "accent": "#2e6874",
+    "accentAlt": "#4d8992",
+    "secondary": "#5d7f92",
+    "highlight": "#8a7190",
+    "text": "#132f36",
+    "muted": "#526d73",
+    "line": "rgba(46, 104, 116, .24)"
+  }
+}
