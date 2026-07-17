@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1 — 2026-07-17
+
+- 修复部分 macOS 上安装器误报“The injector launchd job did not start”的启动竞态。
+- 移除 `launchctl submit` 后多余的强制重启，避免触发 `launchd` 节流。
+- 增加回归检查，防止后续再引入同类问题。
+
 ## 1.0.0 — 2026-07-15
 
 - 发布 macOS 通用主题制作器，而不是固定角色皮肤。

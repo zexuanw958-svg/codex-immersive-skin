@@ -4,6 +4,7 @@
 - Use `Contents/Resources/cua_node/bin/node` from that bundle. Require Node.js 22+, a valid strict code signature, matching architecture, and OpenAI Team ID `2DC432GLL2` on both app and runtime.
 - Do not ship a Node binary and do not depend on a globally installed `node` or `npm`.
 - Launch the official executable through a per-user `launchd` job with `--remote-debugging-address=127.0.0.1` and a selected port. LaunchServices may discard Chromium flags.
+- `launchctl submit` starts a submitted job automatically. Do not immediately force-restart it with `kickstart -k`; that race can terminate the first process and trigger launchd's startup throttle.
 - Prefer port `9341`; scan through `9441` on collision and record the selected port in state.
 - Accept CDP only when the listener belongs to the discovered Codex main process or one of its legitimate descendants, the WebSocket URL is loopback-only, and an `app://` renderer exposes expected native shell markers.
 - Treat loopback CDP as locally privileged but unauthenticated. Keep the themed session limited to trusted local use and close the port through a full Restore when finished.

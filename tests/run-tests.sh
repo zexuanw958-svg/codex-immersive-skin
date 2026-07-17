@@ -37,6 +37,10 @@ if /usr/bin/grep -R -n -E '(writeFile|rename|copyFile|rm).*app\.asar' "$ROOT/scr
   printf 'A runtime script appears to mutate app.asar.\n' >&2
   exit 1
 fi
+if /usr/bin/grep -n -F '/bin/launchctl kickstart -k' "$ROOT/scripts/common-macos.sh" >/dev/null; then
+  printf 'A submitted launchd job is force-restarted, which can trigger launchd throttling and a false startup failure.\n' >&2
+  exit 1
+fi
 
 "$NODE" "$ROOT/scripts/injector.mjs" --check-payload >/dev/null
 "$NODE" --test "$ROOT"/tests/*.test.mjs
@@ -75,7 +79,8 @@ BACKUP="$TMP/theme-backup.json"
 "$NODE" "$ROOT/scripts/theme-config.mjs" restore "$CONFIG" "$BACKUP" >/dev/null
 /usr/bin/cmp -s "$CONFIG" "$TMP/original.toml"
 
-/usr/bin/env -u HOME /bin/bash -c '. "$1/scripts/common-macos.sh"; [ -n "$HOME" ] && [ "$SKIN_VERSION" = "1.0.0" ]' _ "$ROOT"
+EXPECTED_VERSION="$(/usr/bin/tr -d '[:space:]' < "$ROOT/VERSION")"
+/usr/bin/env -u HOME /bin/bash -c '. "$1/scripts/common-macos.sh"; [ -n "$HOME" ] && [ "$SKIN_VERSION" = "$2" ]' _ "$ROOT" "$EXPECTED_VERSION"
 "$ROOT/scripts/doctor-macos.sh" >/dev/null
 
 printf 'PASS: syntax, payload, custom-theme, config round-trip, HOME recovery, signature, and doctor checks.\n'

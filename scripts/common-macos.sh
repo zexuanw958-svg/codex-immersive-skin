@@ -27,7 +27,7 @@ START_ERROR_LOG="$STATE_ROOT/start-error.log"
 CODEX_APP_JOB_LABEL="io.github.codex-immersive-skin.app"
 INJECTOR_JOB_LABEL="io.github.codex-immersive-skin.injector"
 EXPECTED_CODEX_TEAM_ID="${CODEX_EXPECTED_TEAM_ID:-2DC432GLL2}"
-SKIN_VERSION="1.0.0"
+SKIN_VERSION="1.0.1"
 
 fail() {
   local message="$*"
@@ -324,7 +324,6 @@ launch_injector_daemon() {
   /bin/launchctl remove "$INJECTOR_JOB_LABEL" >/dev/null 2>&1 || true
   /bin/launchctl submit -l "$INJECTOR_JOB_LABEL" -o "$INJECTOR_LOG" -e "$INJECTOR_ERROR_LOG" -- \
     "$NODE" "$INJECTOR" --watch --port "$port" --theme-dir "$THEME_DIR"
-  /bin/launchctl kickstart -k "gui/$(/usr/bin/id -u)/$INJECTOR_JOB_LABEL"
   while [ "$SECONDS" -lt "$deadline" ]; do
     pid="$(/bin/launchctl print "gui/$(/usr/bin/id -u)/$INJECTOR_JOB_LABEL" 2>/dev/null \
       | /usr/bin/awk '/^[[:space:]]*pid = [0-9]+/{print $3; exit}')"
@@ -345,7 +344,6 @@ launch_codex_with_cdp() {
   /bin/launchctl submit -l "$CODEX_APP_JOB_LABEL" -o "$APP_LOG" -e "$APP_ERROR_LOG" -- "$CODEX_EXE" \
     --remote-debugging-address=127.0.0.1 \
     --remote-debugging-port="$port"
-  /bin/launchctl kickstart -k "gui/$(/usr/bin/id -u)/$CODEX_APP_JOB_LABEL"
 }
 
 launch_codex_normally() {
