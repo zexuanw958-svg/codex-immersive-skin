@@ -12,7 +12,7 @@ This optional capability entry accompanies a complete standalone project. Users 
 
 1. Run `Install Codex Immersive Skin.command` from the complete project folder.
 2. Run `Customize Codex Immersive Skin.command`, choose an image in Finder, and enter a theme name.
-3. Verify the live result with `Verify Codex Immersive Skin.command`. A pass requires a visible native sidebar and composer, no horizontal overflow, non-interactive decoration, and—on the home route—a real banner, native cards, and project selector.
+3. Verify the live result with `Verify Codex Immersive Skin.command`. A pass requires a visible native sidebar; a composer with a visible editor, usable width, no internal horizontal overflow, and controls inside its bounds; non-interactive decoration; and—on the home route—a real banner, native cards, and a visible project selector when the route provides one.
 4. Restore the original appearance with `Restore Codex Immersive Skin.command`.
 
 ## Guardrails
@@ -20,7 +20,7 @@ This optional capability entry accompanies a complete standalone project. Users 
 - Never modify the Codex `.app`, `app.asar`, or its code signature.
 - Use Codex's signed Node.js runtime only after validating its signature, Team ID, architecture, and minimum version.
 - Bind CDP to loopback, verify that the listener belongs to Codex, and reject non-Codex renderer targets.
-- Preserve all native cards, navigation, project selectors, task content, composer controls, and keyboard focus.
+- Preserve all native cards, navigation, project selectors when present, task content, composer controls, and keyboard focus.
 - Keep decoration at `pointer-events: none`.
 - Require explicit authorization before restarting an already-running Codex instance.
 - Stop an injector only when its recorded PID, executable, command line, and start time all match.

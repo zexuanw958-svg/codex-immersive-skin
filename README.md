@@ -142,7 +142,7 @@ cp ~/.codex/codex-immersive-skin/examples/warm-sand/{theme.json,background.png} 
   --screenshot "$HOME/Desktop/Codex Immersive Skin Verification.png"
 ```
 
-验证器会检查原生侧栏、输入框、主页横幅、建议卡、项目选择器、横向溢出以及装饰层是否拦截点击。要彻底移除主题，可运行桌面的 Restore 入口；恢复脚本会停止经过身份核验的注入器，并恢复安装前备份的基础主题设置。
+验证器会检查原生侧栏、输入栏与编辑区布局、主页横幅、建议卡、存在时的项目选择器、横向溢出以及装饰层是否拦截点击。输入栏虽然存在但宽度塌缩、内部溢出或控件越界时，Verify 会判定失败。要彻底移除主题，可运行桌面的 Restore 入口；恢复脚本会停止经过身份核验的注入器，并恢复安装前备份的基础主题设置。
 
 <a id="security"></a>
 
