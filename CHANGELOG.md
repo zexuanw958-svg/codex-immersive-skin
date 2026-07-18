@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2 — 2026-07-18
+
+- 修复新建对话页原生输入栏在部分窗口布局下被压缩成窄条的问题。
+- 移除会让 flex composer 退回最小内容宽度的自动横向外边距。
+- Verify 新增 composer 宽度、编辑区、滚动宽度和控件边界检查，布局塌缩不再误报通过。
+
 ## 1.0.1 — 2026-07-17
 
 - 修复部分 macOS 上安装器误报“The injector launchd job did not start”的启动竞态。

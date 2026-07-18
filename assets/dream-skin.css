@@ -704,7 +704,6 @@ html.codex-dream-skin .dream-skin-home {
 
 html.codex-dream-skin main.dream-skin-home-shell .composer-surface-chrome {
   max-width: 760px !important;
-  margin-inline: auto !important;
   border: 1px solid rgba(255, 255, 255, .11) !important;
   border-radius: 14px !important;
   background: color-mix(in srgb, var(--ds-panel-2) 82%, transparent) !important;
