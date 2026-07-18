@@ -14,6 +14,8 @@ const doctor = path.join(root, "scripts", "doctor-windows.ps1");
 const start = path.join(root, "scripts", "start-dream-skin-windows.ps1");
 const restore = path.join(root, "scripts", "restore-dream-skin-windows.ps1");
 
+const windowsOnly = process.platform === "win32" ? test : test.skip;
+
 function psQuote(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
 }
@@ -93,7 +95,7 @@ test("Windows runtime scripts expose the required fail-closed primitives", async
   assert.doesNotMatch(`${commonSource}\n${doctorSource}`, /(?:write|rename|copy|remove).*app\.asar/i);
 });
 
-test("remaining argument normalization drops PowerShell empty sentinels", () => {
+windowsOnly("remaining argument normalization drops PowerShell empty sentinels", () => {
   const command = [
     `. ${psQuote(common)}`,
     "$values = @(ConvertTo-CodexWindowsRemainingArguments -Values @($null, '', '--reload', '9341'))",
@@ -107,7 +109,7 @@ test("remaining argument normalization drops PowerShell empty sentinels", () => 
   });
 });
 
-test("package and local cua_node discovery validate the current MSIX installation", () => {
+windowsOnly("package and local cua_node discovery validate the current MSIX installation", () => {
   const command = [
     `. ${psQuote(common)}`,
     "$runtime = Initialize-WindowsRuntime",
@@ -149,7 +151,7 @@ test("package and local cua_node discovery validate the current MSIX installatio
   assert.doesNotMatch(value.safeNodePath, /Users\\[^%]+/i);
 });
 
-test("runtime discovery rejects caller-selected roots", () => {
+windowsOnly("runtime discovery rejects caller-selected roots", () => {
   const command = [
     `. ${psQuote(common)}`,
     "$package = Get-CodexWindowsPackage",
@@ -162,7 +164,7 @@ test("runtime discovery rejects caller-selected roots", () => {
   assert.equal(result.stdout.trim().toLowerCase(), "false");
 });
 
-test("process identity is readable and recorded injector validation fails closed", () => {
+windowsOnly("process identity is readable and recorded injector validation fails closed", () => {
   const injector = path.join(root, "scripts", "injector.mjs");
   const command = [
     `. ${psQuote(common)}`,
@@ -196,7 +198,7 @@ test("process identity is readable and recorded injector validation fails closed
   assert.equal(value.accepted, false);
 });
 
-test("verified process termination rejects a changed identity and stops the captured process handle", async () => {
+windowsOnly("verified process termination rejects a changed identity and stops the captured process handle", async () => {
   const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
     stdio: "ignore",
     windowsHide: true,
@@ -229,7 +231,7 @@ test("verified process termination rejects a changed identity and stops the capt
   }
 });
 
-test("verified gentle close rejects a changed identity and requests close on the captured GUI process", async () => {
+windowsOnly("verified gentle close rejects a changed identity and requests close on the captured GUI process", async () => {
   const fixtureRoot = await fs.mkdtemp(path.join(os.tmpdir(), "codex-immersive-close-"));
   const fixturePath = path.join(fixtureRoot, "verified-close-fixture.exe");
   const fixtureSource = `
@@ -290,7 +292,7 @@ public static class VerifiedCloseFixture {
   }
 });
 
-test("the lifecycle mutex is global, current-user-only, and reentrant", () => {
+windowsOnly("the lifecycle mutex is global, current-user-only, and reentrant", () => {
   const stateRoot = path.join(os.tmpdir(), `codex-immersive-lock-acl-${process.pid}`);
   const command = [
     `. ${psQuote(common)}`,
@@ -334,7 +336,7 @@ test("the lifecycle mutex is global, current-user-only, and reentrant", () => {
   assert.equal(value.reentrant, true);
 });
 
-test("Node output and redirected errors are decoded as strict UTF-8 independent of the console code page", async () => {
+windowsOnly("Node output and redirected errors are decoded as strict UTF-8 independent of the console code page", async () => {
   const stderrPath = path.join(os.tmpdir(), `codex-immersive-node-stderr-${process.pid}-${Date.now()}.txt`);
   const javascript = 'process.stdout.write(JSON.stringify({ text: "晨雾" }) + "\\n"); process.stderr.write("警告\\n");';
   try {
@@ -365,7 +367,7 @@ test("Node output and redirected errors are decoded as strict UTF-8 independent 
   }
 });
 
-test("Node streaming writes decoded stdout while returning only the exit result", () => {
+windowsOnly("Node streaming writes decoded stdout while returning only the exit result", () => {
   const javascript = 'process.stdout.write("first\\n"); setTimeout(() => process.stdout.write("second\\n"), 25);';
   const command = [
     `. ${psQuote(common)}`,
@@ -379,7 +381,7 @@ test("Node streaming writes decoded stdout while returning only the exit result"
   assert.match(result.stdout, /^first\r?\nsecond\r?\nRESULT:0:0\r?\n?$/);
 });
 
-test("the per-state-root operation lock excludes a concurrent lifecycle process", async () => {
+windowsOnly("the per-state-root operation lock excludes a concurrent lifecycle process", async () => {
   const stateRoot = path.join(os.tmpdir(), `codex-immersive-lock-${process.pid}`);
   const holder = spawn("powershell.exe", [
     "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "RemoteSigned", "-Command",
@@ -417,7 +419,7 @@ test("the per-state-root operation lock excludes a concurrent lifecycle process"
   }
 });
 
-test("injector identity rejects a Node process that only mentions the expected arguments", async () => {
+windowsOnly("injector identity rejects a Node process that only mentions the expected arguments", async () => {
   const injector = path.join(root, "scripts", "injector.mjs");
   const child = spawn(process.execPath, [
     "--input-type=module",
@@ -454,7 +456,7 @@ test("injector identity rejects a Node process that only mentions the expected a
   }
 });
 
-test("loopback debugger URL validation supports IPv4 and IPv6 only", () => {
+windowsOnly("loopback debugger URL validation supports IPv4 and IPv6 only", () => {
   const command = [
     `. ${psQuote(common)}`,
     "[pscustomobject]@{",
@@ -472,7 +474,7 @@ test("loopback debugger URL validation supports IPv4 and IPv6 only", () => {
   });
 });
 
-test("a non-GUI descendant cannot claim the Codex CDP port", async () => {
+windowsOnly("a non-GUI descendant cannot claim the Codex CDP port", async () => {
   const server = net.createServer();
   await new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -493,7 +495,7 @@ test("a non-GUI descendant cannot claim the Codex CDP port", async () => {
   }
 });
 
-test("Windows doctor is read-only and reports verified package/runtime facts", () => {
+windowsOnly("Windows doctor is read-only and reports verified package/runtime facts", () => {
   const result = runPowerShell(`& ${psQuote(doctor)}`);
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const value = JSON.parse(result.stdout.trim());
