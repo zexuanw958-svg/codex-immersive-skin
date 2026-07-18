@@ -57,7 +57,8 @@ PAYLOAD_JSON="$("$NODE" "$ROOT/scripts/injector.mjs" --check-payload --theme-dir
   const value = JSON.parse(process.argv[1]);
   if (!value.pass || value.themeName !== "测试主题" || value.imageBytes < 1) process.exit(1);
 ' "$PAYLOAD_JSON"
-"$NODE" "$ROOT/scripts/write-theme.mjs" reset-demo --output-dir "$TMP/theme" >/dev/null
+CODEX_IMMERSIVE_TEST_MODE=1 CODEX_IMMERSIVE_TEST_ROOT="$TMP" \
+  "$NODE" "$ROOT/scripts/write-theme.mjs" reset-demo --output-dir "$TMP/theme" >/dev/null
 [ ! -e "$TMP/theme" ]
 
 CONFIG="$TMP/config.toml"

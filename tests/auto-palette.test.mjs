@@ -19,6 +19,7 @@ const root = path.resolve(here, "..");
 const analyzer = path.join(root, "scripts", "analyze-image.mjs");
 const customizer = path.join(root, "scripts", "customize-theme-macos.sh");
 const analyzerUrl = pathToFileURL(analyzer).href;
+const macOnly = { skip: process.platform !== "darwin" };
 
 test("automatic palette surfaces use theme schema names", () => {
   assert.deepEqual(Object.keys(SURFACES.light), ["background", "panel", "panelAlt"]);
@@ -326,7 +327,7 @@ test("invalid explicit appearance and colors are rejected", () => {
   );
 });
 
-test("the real CLI normalizes an SVG through sips and parses its 32-bit BMP", async () => {
+test("the real CLI normalizes an SVG through sips and parses its 32-bit BMP", macOnly, async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "dream-skin-svg-"));
   try {
     const svg = path.join(directory, "light.svg");
@@ -514,7 +515,7 @@ test("invalid CLI explicit values are hard errors", () => {
   }
 });
 
-test("TSV output contains exactly four ordered fields", async () => {
+test("TSV output contains exactly four ordered fields", macOnly, async () => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), "dream-skin-tsv-"));
   try {
     const svg = path.join(directory, "dark.svg");
@@ -534,7 +535,7 @@ test("TSV output contains exactly four ordered fields", async () => {
   }
 });
 
-test("the real customizer derives a light accessible palette when style flags are omitted", async () => {
+test("the real customizer derives a light accessible palette when style flags are omitted", macOnly, async () => {
   const { result, theme } = await runCustomizerWithSvg("#f4f1ea");
   assert.equal(result.status, 0, result.stderr);
   assert.equal(theme.appearance, "light");
@@ -545,14 +546,14 @@ test("the real customizer derives a light accessible palette when style flags ar
   assertPairwiseDistinctAndContrasting(theme);
 });
 
-test("the real customizer derives a dark accessible palette when style flags are omitted", async () => {
+test("the real customizer derives a dark accessible palette when style flags are omitted", macOnly, async () => {
   const { result, theme } = await runCustomizerWithSvg("#101820");
   assert.equal(result.status, 0, result.stderr);
   assert.equal(theme.appearance, "dark");
   assertPairwiseDistinctAndContrasting(theme);
 });
 
-test("the real customizer preserves a full explicit style override", async () => {
+test("the real customizer preserves a full explicit style override", macOnly, async () => {
   const { result, theme } = await runCustomizerWithSvg("#f4f1ea", [
     "--appearance", "dark",
     "--accent", "#112233",
@@ -567,7 +568,7 @@ test("the real customizer preserves a full explicit style override", async () =>
   );
 });
 
-test("the real customizer combines a partial override with image-derived style", async () => {
+test("the real customizer combines a partial override with image-derived style", macOnly, async () => {
   const { result, theme } = await runCustomizerWithSvg("#f4f1ea", [
     "--accent", "#123456",
   ]);
@@ -578,7 +579,7 @@ test("the real customizer combines a partial override with image-derived style",
   assert.notEqual(theme.colors.highlight, DEFAULT_STYLE.highlight);
 });
 
-test("the real customizer removes its prepared image when explicit color analysis fails", async () => {
+test("the real customizer removes its prepared image when explicit color analysis fails", macOnly, async () => {
   const { result, backgroundFiles } = await runCustomizerWithSvg("#f4f1ea", [
     "--accent", "not-a-hex",
   ]);
@@ -588,7 +589,7 @@ test("the real customizer removes its prepared image when explicit color analysi
 });
 
 for (const option of ["--accent", "--appearance"]) {
-  test(`the real customizer rejects ${option} when the next token is another option`, async () => {
+  test(`the real customizer rejects ${option} when the next token is another option`, macOnly, async () => {
     const {
       result,
       theme,

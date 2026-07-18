@@ -4,8 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "./tests/run-tests.sh",
-    "doctor": "./scripts/doctor-macos.sh"
+    "test": "node ./scripts/run-tests.mjs",
+    "doctor": "./scripts/doctor-macos.sh",
+    "doctor:macos": "./scripts/doctor-macos.sh",
+    "doctor:windows": "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned -File ./scripts/doctor-windows.ps1"
   },
   "engines": {
     "node": ">=22"

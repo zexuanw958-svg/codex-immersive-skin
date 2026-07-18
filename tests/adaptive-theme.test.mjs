@@ -104,6 +104,17 @@ test("CSS maps adaptive palettes to native Codex and VS Code tokens", async () =
   assert.doesNotMatch(css, /rgba\(42,\s*47,\s*77/);
 });
 
+test("home composer keeps the native flex width instead of shrinking to min-content", async () => {
+  const css = await fs.readFile(path.join(root, "assets", "dream-skin.css"), "utf8");
+  const rule = css.match(/html\.codex-dream-skin main\.dream-skin-home-shell \.composer-surface-chrome\s*\{(?<body>[^}]*)\}/);
+  assert.ok(rule?.groups?.body, "the home composer rule must remain explicit");
+  assert.doesNotMatch(
+    rule.groups.body,
+    /margin-inline:\s*auto\s*!important/,
+    "auto inline margins collapse Codex's flex: 1 composer to its min-content width",
+  );
+});
+
 test("watcher reloads the payload instead of retaining the startup payload", async () => {
   const source = await fs.readFile(path.join(root, "scripts", "injector.mjs"), "utf8");
   const start = source.indexOf("async function runWatch");
@@ -137,4 +148,13 @@ test("home verification allows a valid new task without a selected project", asy
   const source = await fs.readFile(path.join(root, "scripts", "injector.mjs"), "utf8");
   assert.match(source, /projectControlOptional/);
   assert.doesNotMatch(source, /visibleCardCount\s*<=\s*4\s*&&\s*Boolean\(result\.projectButton/);
+});
+
+test("live verification rejects a collapsed composer and escaped controls", async () => {
+  const source = await fs.readFile(path.join(root, "scripts", "injector.mjs"), "utf8");
+  assert.match(source, /composerEditor/);
+  assert.match(source, /composerControlBoundsOk/);
+  assert.match(source, /composerLayoutOk/);
+  assert.match(source, /scrollWidth\s*<=\s*composerNode\.clientWidth/);
+  assert.match(source, /result\.composerLayoutOk/);
 });

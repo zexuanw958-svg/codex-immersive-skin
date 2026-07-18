@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- 增加 Windows Install、Customize、Start、Verify、Restore 五个入口。
+- 增加 Microsoft Store/MSIX 包与 Codex 自身 Node.js 运行时身份校验。
+- 增加基于 System.Drawing 的本地图片归一化和自动、部分、完整配色覆盖。
+- 增加 Windows 静态/隔离测试、真机适配报告和谨慎部署指南。
+- 增加逐级 reparse 防护、跨 Session 的当前用户 `Global` 互斥、同句柄温和/强制进程处理，以及可重试的选择性配置恢复。
+- 增加配置与快捷方式 CAS、`pending`/`active` 备份所有权协议、中断安装/主题目录恢复、严格 UTF-8 子进程输出和安全的示例主题重置边界。
+- 修复 Windows 新建对话页 composer 被 flex 自动外边距压缩的问题，并让 Verify 检查编辑区宽度、滚动宽度和控件边界。
+- 修复 Windows PowerShell 5.1 无参数入口与已有快捷方式重装校验的空数组兼容问题。
+- 对 Windows 上经过预期哈希复核的瞬时 `EPERM`/`EACCES`/`EBUSY` 原子重命名增加有界重试。
+
 ## 1.0.1 — 2026-07-17
 
 - 修复部分 macOS 上安装器误报“The injector launchd job did not start”的启动竞态。

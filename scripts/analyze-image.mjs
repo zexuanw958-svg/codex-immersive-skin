@@ -6,6 +6,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const execFile = promisify(execFileCallback);
+const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
+const windowsNormalizer = path.join(scriptDirectory, "normalize-image-windows.ps1");
 
 export const DEFAULT_STYLE = Object.freeze({
   appearance: "dark",
@@ -390,6 +392,35 @@ export function parseBmp(buffer) {
   return pixels;
 }
 
+async function normalizeImageToBmp(imagePath, outputPath) {
+  if (process.platform === "win32") {
+    const systemRoot = process.env.SystemRoot ?? process.env.WINDIR;
+    if (!systemRoot) throw new Error("Windows system root is unavailable");
+    const powershell = path.join(
+      systemRoot,
+      "System32",
+      "WindowsPowerShell",
+      "v1.0",
+      "powershell.exe",
+    );
+    await execFile(powershell, [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy", "RemoteSigned",
+      "-File", windowsNormalizer,
+      "-InputPath", imagePath,
+      "-OutputPath", outputPath,
+      "-MaxDimension", "64",
+    ], { encoding: "utf8", windowsHide: true });
+    return;
+  }
+
+  await execFile("/usr/bin/sips", [
+    "-s", "format", "bmp", "-Z", "64", imagePath, "--out", outputPath,
+  ], { encoding: "utf8" });
+}
+
 export async function resolveImageStyle(imagePath, explicit = {}) {
   const normalized = normalizeExplicit(explicit);
   if (hasCompleteExplicitStyle(normalized)) {
@@ -400,9 +431,7 @@ export async function resolveImageStyle(imagePath, explicit = {}) {
   try {
     temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), "codex-dream-skin-palette-"));
     const normalizedBmp = path.join(temporaryDirectory, "normalized.bmp");
-    await execFile("/usr/bin/sips", [
-      "-s", "format", "bmp", "-Z", "64", imagePath, "--out", normalizedBmp,
-    ], { encoding: "utf8" });
+    await normalizeImageToBmp(imagePath, normalizedBmp);
     const pixels = parseBmp(await fs.readFile(normalizedBmp));
     return resolveStyleFromPixels(pixels, normalized);
   } catch {

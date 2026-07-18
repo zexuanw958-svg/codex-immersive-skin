@@ -335,7 +335,20 @@ async function verifySession(session) {
     const visibleCards = cardBoxes.filter((item) => item?.visible);
     const hero = box(home?.firstElementChild?.firstElementChild?.firstElementChild);
     const projectButton = box(home?.querySelector('.group\\\\/project-selector > button'));
-    const composer = box(document.querySelector('.composer-surface-chrome'));
+    const composerNode = document.querySelector('.composer-surface-chrome');
+    const composer = box(composerNode);
+    const composerEditor = box(composerNode?.querySelector('.ProseMirror, [contenteditable="true"], textarea'));
+    const visibleComposerControls = composerNode
+      ? [...composerNode.querySelectorAll('button, [role="button"]')].map(box).filter((item) => item?.visible)
+      : [];
+    const composerControlBoundsOk = Boolean(composer) && visibleComposerControls.length > 0 &&
+      visibleComposerControls.every((control) =>
+        control.x >= composer.x - 1 &&
+        control.x + control.width <= composer.x + composer.width + 1);
+    const composerLayoutOk = Boolean(composer?.visible) && composer.width >= 240 &&
+      Boolean(composerEditor?.visible) && composerEditor.width >= Math.min(160, Math.max(1, composer.width - 24)) &&
+      composerNode.clientWidth >= 240 && composerNode.scrollWidth <= composerNode.clientWidth + 1 &&
+      composerControlBoundsOk;
     const sidebar = box(document.querySelector('aside.app-shell-left-panel'));
     const chrome = document.getElementById('codex-dream-skin-chrome');
     const result = {
@@ -352,6 +365,13 @@ async function verifySession(session) {
       projectButton,
       projectControlOptional: !projectButton || Boolean(projectButton.visible),
       composer,
+      composerEditor,
+      composerMetrics: composerNode ? {
+        clientWidth: composerNode.clientWidth,
+        scrollWidth: composerNode.scrollWidth,
+      } : null,
+      composerControlBoundsOk,
+      composerLayoutOk,
       sidebar,
       viewport: { width: innerWidth, height: innerHeight },
       documentOverflow: {
@@ -361,7 +381,7 @@ async function verifySession(session) {
     };
     const basePass = result.installed && result.version === ${JSON.stringify(SKIN_VERSION)} &&
       result.stylePresent && result.chromePresent && result.chromePointerEvents === 'none' &&
-      Boolean(result.composer?.visible) && Boolean(result.sidebar?.visible) && !result.documentOverflow.x;
+      result.composerLayoutOk && Boolean(result.sidebar?.visible) && !result.documentOverflow.x;
     const homePass = !result.homeRoute || (
       result.homePresent && result.hero?.visible && result.hero.width >= 320 && result.hero.height >= 160 &&
       result.visibleCardCount >= 2 && result.visibleCardCount <= 4 && result.projectControlOptional

@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -38,10 +39,81 @@ async function atomicWrite(file, value) {
 
 const outputDir = path.resolve(valueFor("output-dir", path.join(root, "assets")));
 const themePath = path.join(outputDir, "theme.json");
+const identityPath = path.join(outputDir, ".codex-immersive-theme.json");
+const themeIdentity = {
+  schemaVersion: 1,
+  product: "Codex Immersive Skin theme",
+};
+
+async function canonicalPath(file) {
+  try {
+    return await fs.realpath(file);
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
+    return path.resolve(file);
+  }
+}
+
+function pathIdentity(file) {
+  const normalized = path.normalize(file);
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+
+function pathWithin(file, boundary) {
+  const relative = path.relative(boundary, file);
+  return relative !== "" && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
+async function isAllowedResetDirectory(resolvedOutput) {
+  const expected = process.platform === "win32"
+    ? process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "CodexImmersiveSkin", "theme")
+    : process.platform === "darwin"
+      ? path.join(os.homedir(), "Library", "Application Support", "CodexImmersiveSkin", "theme")
+      : "";
+  if (expected && pathIdentity(outputDir) === pathIdentity(path.resolve(expected))) {
+    return pathIdentity(resolvedOutput) === pathIdentity(path.resolve(expected)) ? "production" : "";
+  }
+
+  if (process.env.CODEX_IMMERSIVE_TEST_MODE !== "1" || !process.env.CODEX_IMMERSIVE_TEST_ROOT) return "";
+  const [resolvedTestRoot, resolvedTemporaryRoot] = await Promise.all([
+    canonicalPath(process.env.CODEX_IMMERSIVE_TEST_ROOT),
+    canonicalPath(os.tmpdir()),
+  ]);
+  const testLeaf = path.basename(path.resolve(process.env.CODEX_IMMERSIVE_TEST_ROOT));
+  return testLeaf.startsWith("codex-immersive-") &&
+    pathWithin(resolvedTestRoot, resolvedTemporaryRoot) &&
+    path.basename(outputDir) === "theme" &&
+    pathWithin(resolvedOutput, resolvedTestRoot) ? "test" : "";
+}
 
 if (mode === "reset-demo") {
-  if (outputDir === path.join(root, "assets")) {
+  const [resolvedOutput, resolvedAssets] = await Promise.all([
+    canonicalPath(outputDir),
+    canonicalPath(path.join(root, "assets")),
+  ]);
+  if (pathIdentity(resolvedOutput) === pathIdentity(resolvedAssets)) {
     throw new Error("Refusing to delete the bundled demo assets; pass a user --output-dir.");
+  }
+  const resetScope = await isAllowedResetDirectory(resolvedOutput);
+  if (!resetScope) {
+    throw new Error("Refusing to delete a directory outside the managed theme location.");
+  }
+  let identity = null;
+  let theme;
+  try {
+    theme = JSON.parse(await fs.readFile(themePath, "utf8"));
+    identity = await fs.readFile(identityPath, "utf8").then(JSON.parse).catch((error) => {
+      if (error.code === "ENOENT" && resetScope === "production") return null;
+      throw error;
+    });
+  } catch {
+    throw new Error("Refusing to delete a theme directory without valid ownership metadata.");
+  }
+  if ((identity && (identity.schemaVersion !== themeIdentity.schemaVersion ||
+      identity.product !== themeIdentity.product)) ||
+      (!identity && resetScope !== "production") ||
+      theme?.schemaVersion !== 1 || theme?.brandSubtitle !== "CODEX IMMERSIVE SKIN") {
+    throw new Error("Refusing to delete a theme directory with mismatched ownership metadata.");
   }
   await fs.rm(outputDir, { recursive: true, force: true });
   console.log("Restored the bundled neutral demo preset.");
@@ -107,4 +179,5 @@ const custom = {
 };
 
 await atomicWrite(themePath, `${JSON.stringify(custom, null, 2)}\n`);
+await atomicWrite(identityPath, `${JSON.stringify(themeIdentity, null, 2)}\n`);
 console.log(`Saved custom theme “${custom.name}”.`);

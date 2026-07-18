@@ -12,16 +12,18 @@
 
 ## Automated checks
 
-- Shell and JavaScript syntax checks.
+- Platform shell/PowerShell and JavaScript syntax checks.
 - Payload construction with bundled demo and an isolated custom theme.
 - Reject unsupported theme config, unsafe image paths, invalid colors, oversized images, non-loopback WebSocket URLs, and unrecognized renderer targets.
 - Exact install/restore round trip for the two TOML settings while preserving unrelated values.
-- Empty `HOME` recovery.
-- Official app and internal Node signature, Team ID, architecture, and version validation.
+- Windows config and launcher compare-and-swap behavior, owned pending/active backup transitions, interrupted `.previous` recovery, and refusal to overwrite concurrent edits.
+- Empty `HOME` recovery on macOS.
+- Official app and internal Node identity validation: signature, Team ID, architecture, and version on macOS; Store/MSIX identity, BlockMap, package-matching local runtime hash, Authenticode, architecture, and version on Windows.
 - Port collision selection and saved-port reuse.
 - PID reuse protection through PID, start time, executable, script path, and command-line matching.
+- Windows cross-session current-user mutex ACLs, same-handle gentle/force process handling, strict UTF-8 child output, reparse-safe mutable trees, and owned reset-demo cleanup.
 - Live verification after `Page.reload` returns version `1.0.1` and `pass: true`.
-- Strict home verification requires a visible banner of at least 320×160, two to four visible native cards, visible project button, composer, sidebar, non-interactive decoration, and no horizontal overflow.
+- Strict home verification requires a visible banner of at least 320×160, two to four visible native cards, visible project button, sidebar, non-interactive decoration, and no document overflow. The composer must be at least 240 px wide, contain a visible editor, keep client/scroll widths aligned, and contain its visible controls within bounds.
 
 ## Visual checks
 
@@ -33,9 +35,9 @@
 
 ## Release signoff
 
-- Run `tests/run-tests.sh` successfully.
+- Run `tests/run-tests.sh` on macOS or `npm.cmd test` on Windows successfully.
 - Install from a clean extracted copy with no global Node.js.
 - Complete install → live verify → reload verify → restore → reinstall.
-- Capture a real CDP screenshot and retain the verifier JSON.
-- Confirm `codesign --verify --deep --strict` still succeeds for the official Codex app.
+- Retain the verifier JSON; Windows Verify is JSON-only by default. Capture a real CDP screenshot only with the user's explicit consent and a non-sensitive task; never commit or upload it.
+- Confirm `codesign --verify --deep --strict` still succeeds on macOS, or `doctor-windows.ps1` reports Store/BlockMap/runtime checks passing on Windows.
 - Build ZIP and record SHA-256.

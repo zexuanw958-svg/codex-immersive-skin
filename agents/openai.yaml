@@ -1,4 +1,4 @@
 interface:
   display_name: "Codex Immersive Skin"
-  short_description: "Turn a personal image into a reversible macOS Codex theme"
-  default_prompt: "Use $codex-immersive-skin to install, customize, verify, or restore my macOS Codex theme without modifying the Codex app."
+  short_description: "Reversible Codex themes for macOS and Store-checked Windows"
+  default_prompt: "Use $codex-immersive-skin to install, customize, verify, or restore my Codex theme safely without modifying the app package."
