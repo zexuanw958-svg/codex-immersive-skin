@@ -45,7 +45,7 @@ fi
 "$NODE" "$ROOT/scripts/injector.mjs" --check-payload >/dev/null
 "$NODE" --test "$ROOT"/tests/*.test.mjs
 
-TMP="$(/usr/bin/mktemp -d /tmp/codex-dream-skin-tests.XXXXXX)"
+TMP="$(/usr/bin/mktemp -d "${TMPDIR:-/tmp}/codex-immersive-tests.XXXXXX")"
 trap '/bin/rm -rf "$TMP"' EXIT
 /bin/mkdir -p "$TMP/theme"
 /bin/cp "$ROOT/assets/morning-mist.png" "$TMP/theme/background.png"
