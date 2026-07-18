@@ -15,6 +15,8 @@
 
 <sub>🎬 作者抖音：<strong>@泽轩604</strong>（App 内搜索即达）</sub>
 
+<sub>⭐ 项目免费开源、持续维护——觉得好用，右上角点个 Star 就是对作者最大的支持</sub>
+
 <sub><a href="#-30-秒理解">✨ 特点</a> · <a href="#-快速开始">🚀 macOS 安装</a> · <a href="#windows">🪟 Windows</a> · <a href="#-换成自己的图片">🖼️ 自定义</a> · <a href="#security">🛡️ 安全</a> · <a href="#-常见问题">❓ FAQ</a> · <a href="#-english-summary">English</a></sub>
 
 </div>
