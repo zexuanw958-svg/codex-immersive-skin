@@ -2,7 +2,7 @@
 
 ## Required user-visible behavior
 
-1. Home route shows one independent image banner, live native heading, two to four native suggestion cards, the real project selector, and native composer.
+1. Home route shows one independent image banner, live native heading, two to four native suggestion cards, the real project selector when that route provides one, and a native composer with usable width.
 2. Normal tasks show the selected image behind restrained gradients and translucent live content surfaces.
 3. Sidebar, navigation, messages, approvals, project selector, attachments, composer, menus, hover, focus, and keyboard input remain native and interactive.
 4. Decorative layers have `pointer-events: none`; no screenshot or raster UI is used as an overlay.
@@ -22,8 +22,9 @@
 - Port collision selection and saved-port reuse.
 - PID reuse protection through PID, start time, executable, script path, and command-line matching.
 - Windows cross-session current-user mutex ACLs, same-handle gentle/force process handling, strict UTF-8 child output, reparse-safe mutable trees, and owned reset-demo cleanup.
-- Live verification after `Page.reload` returns version `1.0.1` and `pass: true`.
-- Strict home verification requires a visible banner of at least 320×160, two to four visible native cards, visible project button, sidebar, non-interactive decoration, and no document overflow. The composer must be at least 240 px wide, contain a visible editor, keep client/scroll widths aligned, and contain its visible controls within bounds.
+- Live verification after `Page.reload` returns version `1.1.0` and `pass: true`.
+- Composer verification requires at least 240 px of visible width, a visible editor, no internal horizontal overflow, and all visible controls to stay inside the composer bounds.
+- Strict home verification requires a visible banner of at least 320×160, two to four visible native cards, a visible project button when present, a valid composer layout, a visible sidebar, non-interactive decoration, and no horizontal overflow.
 
 ## Visual checks
 
@@ -31,7 +32,7 @@
 - Narrower window: quote/orbit decoration hides before covering essential controls.
 - Task route: background remains atmospheric, messages and output panels keep high contrast, and the composer remains reachable.
 - Selected image contains no fake interface controls or raster text intended to impersonate Codex.
-- Inspect sidebar selection, header, banner edges, cards, project label, composer buttons, scrollbars, focus outlines, dialogs, and menus.
+- Inspect sidebar selection, header, banner edges, cards, the project label when present, composer width and buttons, scrollbars, focus outlines, dialogs, and menus.
 
 ## Release signoff
 

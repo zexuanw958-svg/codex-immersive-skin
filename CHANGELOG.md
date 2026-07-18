@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.0 — 2026-07-18
 
 - 增加 Windows Install、Customize、Start、Verify、Restore 五个入口。
 - 增加 Microsoft Store/MSIX 包与 Codex 自身 Node.js 运行时身份校验。
@@ -11,6 +11,12 @@
 - 修复 Windows 新建对话页 composer 被 flex 自动外边距压缩的问题，并让 Verify 检查编辑区宽度、滚动宽度和控件边界。
 - 修复 Windows PowerShell 5.1 无参数入口与已有快捷方式重装校验的空数组兼容问题。
 - 对 Windows 上经过预期哈希复核的瞬时 `EPERM`/`EACCES`/`EBUSY` 原子重命名增加有界重试。
+
+## 1.0.2 — 2026-07-18
+
+- 修复新建对话页原生输入栏在部分窗口布局下被压缩成窄条的问题。
+- 移除会让 flex composer 退回最小内容宽度的自动横向外边距。
+- Verify 新增 composer 宽度、编辑区、滚动宽度和控件边界检查，布局塌缩不再误报通过。
 
 ## 1.0.1 — 2026-07-17
 

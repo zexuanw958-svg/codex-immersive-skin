@@ -139,7 +139,10 @@ windowsOnly("Windows installer succeeds without launching Codex or touching Desk
   await withFixture(async (fixture) => {
     const result = runInstaller(fixture);
     assert.equal(result.status, 0, result.stderr || result.stdout);
-    assert.equal((await fs.readFile(path.join(fixture.installRoot, "VERSION"), "utf8")).trim(), "1.0.1");
+    assert.equal(
+      (await fs.readFile(path.join(fixture.installRoot, "VERSION"), "utf8")).trim(),
+      (await fs.readFile(path.join(root, "VERSION"), "utf8")).trim(),
+    );
     const identity = JSON.parse(await fs.readFile(
       path.join(fixture.installRoot, ".codex-immersive-skin-install.json"),
       "utf8",

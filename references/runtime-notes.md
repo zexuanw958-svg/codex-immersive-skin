@@ -6,6 +6,7 @@
 - Prefer port `9341`, select a nearby available port on collision, and record the selected port in state.
 - Treat loopback CDP as locally privileged but unauthenticated. Keep the themed session limited to trusted local use and close the port through a full Restore when finished.
 - Poll page targets and reinject after document loads. A debounced mutation observer plus a low-frequency safety timer handles in-page route changes.
+- Preserve the native flex sizing of `.composer-surface-chrome`; an automatic inline margin can force the composer down to its min-content width. Live verification must check the composer, editor, scroll width, and control bounds rather than only checking that the shell exists.
 - Record injector PID, start time, executable, script path, app identity, selected port, and theme directory. Refuse to stop a PID when any required identity differs.
 - Back up and restore only `appearanceTheme` and `appearanceDarkCodeThemeId`. Leave `appearanceDarkChromeTheme` and unrelated TOML content untouched.
 - Never modify, replace, unpack, repack, re-sign, or back up `app.asar`, the macOS bundle, or the Windows MSIX.

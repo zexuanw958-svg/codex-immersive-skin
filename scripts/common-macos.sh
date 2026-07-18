@@ -27,7 +27,7 @@ START_ERROR_LOG="$STATE_ROOT/start-error.log"
 CODEX_APP_JOB_LABEL="io.github.codex-immersive-skin.app"
 INJECTOR_JOB_LABEL="io.github.codex-immersive-skin.injector"
 EXPECTED_CODEX_TEAM_ID="${CODEX_EXPECTED_TEAM_ID:-2DC432GLL2}"
-SKIN_VERSION="1.0.1"
+SKIN_VERSION="1.1.0"
 
 fail() {
   local message="$*"

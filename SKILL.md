@@ -14,7 +14,7 @@ This optional capability entry accompanies a complete standalone project. Users 
 3. Run `Install Codex Immersive Skin.command` on macOS. On Windows, before restart authorization, run `Install Codex Immersive Skin.cmd --no-launch` so deployment cannot enter Start.
 4. Run the matching Customize entry, choose a local image, and enter a theme name. Preserve automatic palette fields unless the user explicitly overrides them. On Windows, use `--no-apply` until restart authorization has been granted.
 5. Run the matching Start entry. Obtain explicit authorization before restarting an already-running Codex instance; only then may Windows automation pass `--restart-existing`.
-6. Run the matching Verify entry. Require a visible native sidebar and composer, no horizontal overflow, non-interactive decoration, and—on the home route—a real banner, native cards, and project selector. Keep manual interaction checks separate from automated results.
+6. Run the matching Verify entry. Require a visible native sidebar; a composer with a visible editor, usable width, no internal horizontal overflow, and controls inside its bounds; non-interactive decoration; and—on the home route—a real banner, native cards, and a visible project selector when the route provides one. Keep manual interaction checks separate from automated results.
 7. Run the matching Restore entry to restore the original appearance and close the themed debug session.
 
 ## Guardrails
@@ -23,7 +23,7 @@ This optional capability entry accompanies a complete standalone project. Users 
 - On macOS, validate the app/runtime signature, Team ID, architecture, and minimum Node.js version. On Windows, validate Store package identity and content, then use only the `%LOCALAPPDATA%` Codex runtime whose hash, signature, architecture, and version match the package.
 - Never disable SmartScreen, use `Bypass`, or persistently lower PowerShell policy. Keep Windows `RemoteSigned` limited to the launched process.
 - Bind CDP to loopback, verify that the listener belongs to Codex, and reject non-Codex renderer targets.
-- Preserve all native cards, navigation, project selectors, task content, composer controls, and keyboard focus.
+- Preserve all native cards, navigation, project selectors when present, task content, composer controls, and keyboard focus.
 - Keep decoration at `pointer-events: none`.
 - Require explicit authorization before restarting an already-running Codex instance.
 - Stop an injector only when its recorded PID, executable, command line, and start time all match.
