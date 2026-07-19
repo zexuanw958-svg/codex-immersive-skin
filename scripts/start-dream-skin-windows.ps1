@@ -177,63 +177,199 @@ function Test-VerifiedCdpEndpoint {
   Test-CodexWindowsCdpEndpoint -Port $Port -PackageInfo $PackageInfo
 }
 
-function Start-CodexWithCdp {
-  param([int]$Port, $PackageInfo)
-  $arguments = @(
-    '--remote-debugging-address=127.0.0.1',
-    "--remote-debugging-port=$Port"
-  )
-  $process = Start-Process -FilePath $PackageInfo.AppExecutable -ArgumentList $arguments -PassThru
-  $deadline = [DateTime]::UtcNow.AddSeconds(8)
-  do {
-    try {
-      $identity = Get-CodexWindowsProcessIdentity -ProcessId $process.Id
-      if ((Test-VerifiedCodexMainIdentity -Identity $identity -PackageInfo $PackageInfo) -and
-          (Test-CodexDebugIdentityForPort -Identity $identity -Port $Port)) {
-        return [pscustomobject]@{ Process = $process; Identity = $identity }
-      }
-    } catch { }
-    if ($process.HasExited) { break }
-    Start-Sleep -Milliseconds 100
-  } while ([DateTime]::UtcNow -lt $deadline)
-  try {
-    if (-not $process.HasExited) {
-      $process.Kill()
-      if (-not $process.WaitForExit(6000) -or -not $process.HasExited) {
-        throw '本事务启动的 Codex 原始进程句柄未能确认退出。'
-      }
-    }
-  } catch {
-    $script:TransactionCodexCleanupUnconfirmed = $true
-    throw "本事务启动的 Codex 身份检查失败，且原始进程未确认退出：$($_.Exception.Message)"
-  }
-  throw '本事务启动的 Codex 未能建立可验证的调试进程身份。'
+function Test-CodexDebugIdentityForPort {
+  param($Identity, [int]$Port, [string]$LaunchToken)
+
+  if ($LaunchToken -notmatch '^[0-9a-f]{32}$') { return $false }
+  $argv = @([CodexImmersiveSkin.WindowsNative]::ParseCommandLine($Identity.CommandLine))
+  $addresses = @($argv | Where-Object {
+    ([string]$_).StartsWith('--remote-debugging-address=', [StringComparison]::OrdinalIgnoreCase)
+  })
+  $ports = @($argv | Where-Object {
+    ([string]$_).StartsWith('--remote-debugging-port=', [StringComparison]::OrdinalIgnoreCase)
+  })
+  $tokens = @($argv | Where-Object {
+    ([string]$_).StartsWith('--codex-immersive-launch-token=', [StringComparison]::OrdinalIgnoreCase)
+  })
+  return $addresses.Count -eq 1 -and
+    [string]$addresses[0] -eq '--remote-debugging-address=127.0.0.1' -and
+    $ports.Count -eq 1 -and [string]$ports[0] -eq "--remote-debugging-port=$Port" -and
+    $tokens.Count -eq 1 -and
+    [string]$tokens[0] -eq "--codex-immersive-launch-token=$LaunchToken"
 }
 
-function Test-CodexDebugIdentityForPort {
-  param($Identity, [int]$Port)
-  $argv = @([CodexImmersiveSkin.WindowsNative]::ParseCommandLine($Identity.CommandLine))
-  return @($argv | Where-Object {
-    [string]$_ -eq '--remote-debugging-address=127.0.0.1'
-  }).Count -eq 1 -and @($argv | Where-Object {
-    [string]$_ -eq "--remote-debugging-port=$Port"
-  }).Count -eq 1
+function Get-CodexProcessIdentityKey {
+  param($Identity)
+  return ([string][int]$Identity.ProcessId + '|' + [string]$Identity.StartTimeUtc)
+}
+
+function New-CodexLaunchContext {
+  return [pscustomobject]@{
+    Process = $null
+    Started = $false
+    StartedAtUtc = $null
+    ExcludedIdentityKeys = @()
+    LaunchToken = $null
+    OriginalIdentity = $null
+    Identity = $null
+    ObservedIdentities = @()
+  }
+}
+
+function Add-CodexLaunchObservedIdentity {
+  param($LaunchContext, $Identity)
+
+  $identityKey = Get-CodexProcessIdentityKey -Identity $Identity
+  foreach ($observed in @($LaunchContext.ObservedIdentities)) {
+    if ((Get-CodexProcessIdentityKey -Identity $observed) -eq $identityKey) { return }
+  }
+  $LaunchContext.ObservedIdentities = @(@($LaunchContext.ObservedIdentities) + $Identity)
+}
+
+function Get-CodexTransactionDebugProcesses {
+  param(
+    [int]$Port,
+    $PackageInfo,
+    [DateTime]$StartedAtUtc,
+    [string[]]$ExcludedIdentityKeys,
+    [string]$LaunchToken,
+    [object[]]$Entries
+  )
+
+  $excluded = @{}
+  foreach ($key in @($ExcludedIdentityKeys)) { $excluded[[string]$key] = $true }
+  $notBeforeUtc = $StartedAtUtc.ToUniversalTime()
+  $result = @()
+  $sourceEntries = if ($PSBoundParameters.ContainsKey('Entries')) {
+    @($Entries)
+  } else {
+    @(Get-VerifiedCodexMainProcesses -PackageInfo $PackageInfo)
+  }
+  foreach ($entry in $sourceEntries) {
+    try {
+      $identity = $entry.Identity
+      $key = Get-CodexProcessIdentityKey -Identity $identity
+      $started = [DateTime]::Parse(
+        [string]$identity.StartTimeUtc,
+        [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::RoundtripKind
+      ).ToUniversalTime()
+      if ($excluded.ContainsKey($key) -or $started -lt $notBeforeUtc -or
+          -not (Test-CodexDebugIdentityForPort -Identity $identity -Port $Port `
+            -LaunchToken $LaunchToken)) { continue }
+      $result += $entry
+    } catch { }
+  }
+  return $result
+}
+
+function Add-CodexLaunchObservedTransactionProcesses {
+  param(
+    [object[]]$Entries,
+    [int]$Port,
+    $PackageInfo,
+    $LaunchContext
+  )
+
+  $startedAtUtc = [DateTime]::Parse(
+    [string]$LaunchContext.StartedAtUtc,
+    [Globalization.CultureInfo]::InvariantCulture,
+    [Globalization.DateTimeStyles]::RoundtripKind
+  ).ToUniversalTime()
+  $candidateArguments = @{
+    Port = $Port
+    PackageInfo = $PackageInfo
+    StartedAtUtc = $startedAtUtc
+    ExcludedIdentityKeys = @($LaunchContext.ExcludedIdentityKeys)
+    LaunchToken = [string]$LaunchContext.LaunchToken
+  }
+  if ($PSBoundParameters.ContainsKey('Entries')) {
+    $candidateArguments.Entries = @($Entries)
+  }
+  $candidates = @(Get-CodexTransactionDebugProcesses @candidateArguments)
+  $freshCandidates = @()
+  foreach ($entry in $candidates) {
+    $candidate = $entry.Identity
+    try {
+      $fresh = Get-CodexWindowsProcessIdentity -ProcessId ([int]$candidate.ProcessId)
+      if ($fresh.StartTimeUtc -eq [string]$candidate.StartTimeUtc -and
+          $fresh.CommandLine -eq [string]$candidate.CommandLine -and
+          (Test-VerifiedCodexMainIdentity -Identity $fresh -PackageInfo $PackageInfo) -and
+          (Test-CodexDebugIdentityForPort -Identity $fresh -Port $Port `
+            -LaunchToken ([string]$LaunchContext.LaunchToken))) {
+        Add-CodexLaunchObservedIdentity -LaunchContext $LaunchContext -Identity $fresh
+        $freshCandidates += $fresh
+      }
+    } catch { }
+  }
+  return $freshCandidates
+}
+
+function Start-CodexWithCdp {
+  param([int]$Port, $PackageInfo, $LaunchContext)
+
+  if ($null -eq $LaunchContext -or $LaunchContext.Started -or $null -ne $LaunchContext.Process) {
+    throw '启动调试 Codex 的事务上下文无效。'
+  }
+  $baseline = @(Get-VerifiedCodexMainProcesses -PackageInfo $PackageInfo)
+  if ($baseline.Count -gt 0) {
+    throw '启动调试 Codex 前仍存在经过验证的主进程。'
+  }
+  $excludedIdentityKeys = @($baseline | ForEach-Object {
+    Get-CodexProcessIdentityKey -Identity $_.Identity
+  })
+  $startedAtUtc = [DateTime]::UtcNow
+  $launchToken = [Guid]::NewGuid().ToString('N')
+  $arguments = @(
+    '--remote-debugging-address=127.0.0.1',
+    "--remote-debugging-port=$Port",
+    "--codex-immersive-launch-token=$launchToken"
+  )
+  $LaunchContext.StartedAtUtc = $startedAtUtc.ToString('o')
+  $LaunchContext.ExcludedIdentityKeys = $excludedIdentityKeys
+  $LaunchContext.LaunchToken = $launchToken
+  $LaunchContext.Process = Start-Process -FilePath $PackageInfo.AppExecutable `
+    -ArgumentList $arguments -PassThru
+  $LaunchContext.Started = $true
+  return $LaunchContext
 }
 
 function Wait-VerifiedCdpEndpoint {
-  param([int]$Port, $PackageInfo, $LaunchedIdentity, [int]$TimeoutSeconds = 35)
+  param([int]$Port, $PackageInfo, $LaunchContext, [int]$TimeoutSeconds = 35)
+
+  $startedAtUtc = [DateTime]::Parse(
+    [string]$LaunchContext.StartedAtUtc,
+    [Globalization.CultureInfo]::InvariantCulture,
+    [Globalization.DateTimeStyles]::RoundtripKind
+  ).ToUniversalTime()
   $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
   do {
-    try {
-      $fresh = Get-CodexWindowsProcessIdentity -ProcessId ([int]$LaunchedIdentity.ProcessId)
-      if ($fresh.StartTimeUtc -ne [string]$LaunchedIdentity.StartTimeUtc -or
-          $fresh.CommandLine -ne [string]$LaunchedIdentity.CommandLine -or
-          -not (Test-VerifiedCodexMainIdentity -Identity $fresh -PackageInfo $PackageInfo) -or
-          -not (Test-CodexDebugIdentityForPort -Identity $fresh -Port $Port)) {
-        return $false
-      }
+    if ($null -eq $LaunchContext.OriginalIdentity) {
+      try {
+        if (-not $LaunchContext.Process.HasExited) {
+          $original = Get-CodexWindowsProcessIdentity -ProcessId ([int]$LaunchContext.Process.Id)
+          $originalStarted = [DateTime]::Parse(
+            [string]$original.StartTimeUtc,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::RoundtripKind
+          ).ToUniversalTime()
+          if ($originalStarted -ge $startedAtUtc -and
+              (Test-VerifiedCodexMainIdentity -Identity $original -PackageInfo $PackageInfo)) {
+            $LaunchContext.OriginalIdentity = $original
+          }
+        }
+      } catch { }
+    }
+
+    $freshCandidates = @(Add-CodexLaunchObservedTransactionProcesses -Port $Port `
+      -PackageInfo $PackageInfo -LaunchContext $LaunchContext)
+    if ($freshCandidates.Count -gt 1) {
+      throw '启动事务发现多个符合条件的 Codex 调试主进程，已拒绝选择。'
+    }
+    if ($freshCandidates.Count -eq 1) {
+      $LaunchContext.Identity = $freshCandidates[0]
       if (Test-VerifiedCdpEndpoint -Port $Port -PackageInfo $PackageInfo) { return $true }
-    } catch { return $false }
+    }
     Start-Sleep -Milliseconds 400
   } while ([DateTime]::UtcNow -lt $deadline)
   return $false
@@ -256,6 +392,28 @@ function Stop-TransactionCodex {
   } catch {
     return $false
   }
+}
+
+function Stop-CodexLaunchContextProcesses {
+  param($LaunchContext, $PackageInfo)
+
+  if ($null -eq $LaunchContext -or -not $LaunchContext.Started) { return $true }
+  $identities = @()
+  $identities += @($LaunchContext.ObservedIdentities)
+  $identities += @($LaunchContext.Identity)
+  $identities += @($LaunchContext.OriginalIdentity)
+  $identityKeys = @{}
+  $allStopped = $true
+  foreach ($identity in $identities) {
+    if ($null -eq $identity) { continue }
+    $identityKey = Get-CodexProcessIdentityKey -Identity $identity
+    if ($identityKeys.ContainsKey($identityKey)) { continue }
+    $identityKeys[$identityKey] = $true
+    if (-not (Stop-TransactionCodex -Identity $identity -PackageInfo $PackageInfo)) {
+      $allStopped = $false
+    }
+  }
+  return $allStopped
 }
 
 function Stop-RecordedInjector {
@@ -436,6 +594,47 @@ function Start-CodexNormally {
   throw 'Windows 未能通过已验证的 AppsFolder 身份正常启动 Codex。'
 }
 
+function Test-CodexWindowsTransientReplaceError {
+  param([Exception]$Exception)
+
+  $baseException = $Exception.GetBaseException()
+  if ($baseException -is [UnauthorizedAccessException]) { return $true }
+  if ($baseException -isnot [IO.IOException]) { return $false }
+  $win32Code = ([int]$baseException.HResult) -band 0xFFFF
+  return $win32Code -in @(5, 32, 33)
+}
+
+function Get-CodexWindowsFileHashWithRetry {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [int]$Attempts = 8
+  )
+
+  for ($attempt = 0; $attempt -lt $Attempts; $attempt++) {
+    try {
+      if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        throw '配置事务文件不存在。'
+      }
+      return (Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash
+    } catch {
+      if ($attempt + 1 -ge $Attempts -or
+          -not (Test-CodexWindowsTransientReplaceError -Exception $_.Exception)) { throw }
+      Start-Sleep -Milliseconds ([Math]::Min(25 * [Math]::Pow(2, $attempt), 400))
+    }
+  }
+  throw '配置事务文件哈希读取重试未返回结果。'
+}
+
+function Invoke-CodexWindowsFileReplace {
+  param(
+    [Parameter(Mandatory = $true)][string]$SourcePath,
+    [Parameter(Mandatory = $true)][string]$DestinationPath,
+    [Parameter(Mandatory = $true)][string]$BackupPath
+  )
+
+  [IO.File]::Replace($SourcePath, $DestinationPath, $BackupPath)
+}
+
 function Restore-ConfigSnapshot {
   param(
     [Parameter(Mandatory = $true)][string]$SnapshotPath,
@@ -446,21 +645,40 @@ function Restore-ConfigSnapshot {
       (Get-FileHash -Algorithm SHA256 -LiteralPath $SnapshotPath).Hash -ne $SnapshotHash) {
     throw '启动事务配置快照缺失或哈希不匹配。'
   }
-  if (-not (Test-Path -LiteralPath $script:ConfigPath -PathType Leaf) -or
-      (Get-FileHash -Algorithm SHA256 -LiteralPath $script:ConfigPath).Hash -ne $ExpectedCurrentHash) {
-    throw 'Codex 配置在启动事务期间被其他程序修改；已拒绝覆盖并保留恢复材料。'
-  }
   $temporary = Join-Path (Split-Path -Parent $script:ConfigPath) `
     ('.config.toml.codex-immersive-rollback.' + $PID + '.' + [Guid]::NewGuid().ToString('N'))
+  $displaced = Join-Path (Split-Path -Parent $script:ConfigPath) `
+    ('.config.toml.codex-immersive-displaced.' + $PID + '.' + [Guid]::NewGuid().ToString('N'))
+  $replaced = $false
   try {
     Copy-Item -LiteralPath $SnapshotPath -Destination $temporary -Force
     if ((Get-FileHash -Algorithm SHA256 -LiteralPath $temporary).Hash -ne $SnapshotHash) {
       throw '启动事务配置临时恢复文件哈希不匹配。'
     }
-    [IO.File]::Replace($temporary, $script:ConfigPath, $null)
+    for ($attempt = 0; $attempt -lt 8; $attempt++) {
+      try {
+        if ((Get-CodexWindowsFileHashWithRetry -Path $script:ConfigPath) -ne $ExpectedCurrentHash) {
+          throw 'Codex 配置在启动事务回滚重试期间发生变化；已拒绝覆盖并保留恢复材料。'
+        }
+        Invoke-CodexWindowsFileReplace -SourcePath $temporary `
+          -DestinationPath $script:ConfigPath -BackupPath $displaced
+        $replaced = $true
+        break
+      } catch {
+        if ($attempt + 1 -ge 8 -or
+            -not (Test-CodexWindowsTransientReplaceError -Exception $_.Exception)) { throw }
+        Start-Sleep -Milliseconds ([Math]::Min(25 * [Math]::Pow(2, $attempt), 400))
+      }
+    }
+    if (-not $replaced) { throw '启动事务配置恢复未能完成原子替换。' }
     if ((Get-FileHash -Algorithm SHA256 -LiteralPath $script:ConfigPath).Hash -ne $SnapshotHash) {
       throw '启动事务配置恢复后的哈希不匹配。'
     }
+    if (-not (Test-Path -LiteralPath $displaced -PathType Leaf) -or
+        (Get-FileHash -Algorithm SHA256 -LiteralPath $displaced).Hash -ne $ExpectedCurrentHash) {
+      throw '启动事务配置被替换文件的哈希不匹配；恢复材料已保留。'
+    }
+    Remove-Item -LiteralPath $displaced -Force
   } finally {
     if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force }
   }
@@ -515,6 +733,7 @@ $newInjectorIdentity = $null
 $newStateWritten = $false
 $codexRecoveryRequired = $codexRunning
 $launchedWithCdp = $false
+$launchedCodexContext = $null
 $launchedCodexIdentity = $null
 $foregroundInjectorRan = $false
 $preexistingDebugSessionTouched = $false
@@ -556,17 +775,24 @@ try {
 
   if (-not $debugReady) {
     $options.Port = Select-AvailablePort -Preferred $options.Port
-    $launchedCodex = Start-CodexWithCdp -Port $options.Port -PackageInfo $package
-    $launchedCodexIdentity = $launchedCodex.Identity
-    $launchedWithCdp = $true
+    $launchedCodexContext = New-CodexLaunchContext
+    [void](Start-CodexWithCdp -Port $options.Port -PackageInfo $package `
+      -LaunchContext $launchedCodexContext)
+    $launchedWithCdp = [bool]$launchedCodexContext.Started
     if (-not (Wait-VerifiedCdpEndpoint -Port $options.Port -PackageInfo $package `
-        -LaunchedIdentity $launchedCodexIdentity)) {
+        -LaunchContext $launchedCodexContext)) {
       throw "Codex 未在 35 秒内开放经过验证的本机 CDP 端口 $($options.Port)。"
+    }
+    $launchedCodexIdentity = $launchedCodexContext.Identity
+    if ($null -eq $launchedCodexIdentity) {
+      throw 'Codex CDP 端点通过后缺少经过验证的主进程身份。'
     }
     $unexpectedMains = @(Get-VerifiedCodexMainProcesses -PackageInfo $package | Where-Object {
       [int]$_.Identity.ProcessId -ne [int]$launchedCodexIdentity.ProcessId
     })
     if ($unexpectedMains.Count -gt 0) {
+      [void]@(Add-CodexLaunchObservedTransactionProcesses -Entries $unexpectedMains `
+        -Port $options.Port -PackageInfo $package -LaunchContext $launchedCodexContext)
       throw '启动事务期间出现了额外的 Codex 主进程；已停止提交。'
     }
   }
@@ -604,6 +830,8 @@ try {
 }
 catch {
   $originalError = $_
+  $launchedWithCdp = $null -ne $launchedCodexContext -and
+    [bool]$launchedCodexContext.Started
   $rollbackErrors = New-Object Collections.ArrayList
   $newInjectorStopped = $null -eq $newInjectorIdentity -and -not $script:EmergencyInjectorStateWritten
   if ($script:EmergencyInjectorStateWritten) {
@@ -641,12 +869,23 @@ catch {
   }
 
   $transactionCodexStopped = -not $script:TransactionCodexCleanupUnconfirmed
-  if ($null -ne $launchedCodexIdentity) {
-    $transactionCodexStopped = Stop-TransactionCodex -Identity $launchedCodexIdentity -PackageInfo $package
-    if (-not $transactionCodexStopped) {
-      [void]$rollbackErrors.Add('本事务启动的调试 Codex 未确认退出')
+  if (-not (Stop-CodexLaunchContextProcesses -LaunchContext $launchedCodexContext `
+      -PackageInfo $package)) {
+    $transactionCodexStopped = $false
+    [void]$rollbackErrors.Add('本事务启动的调试 Codex 未全部确认退出')
+  }
+  if ($launchedWithCdp -and $null -eq $launchedCodexContext.OriginalIdentity) {
+    try {
+      if (-not $launchedCodexContext.Process.HasExited) {
+        $transactionCodexStopped = $false
+        [void]$rollbackErrors.Add('本事务启动器仍在运行但无法验证身份')
+      }
+    } catch {
+      $transactionCodexStopped = $false
+      [void]$rollbackErrors.Add('本事务启动器退出状态无法确认')
     }
-  } elseif ($script:TransactionCodexCleanupUnconfirmed) {
+  }
+  if ($script:TransactionCodexCleanupUnconfirmed) {
     [void]$rollbackErrors.Add('本事务启动的 Codex 身份建立失败且未确认退出')
   }
 
@@ -660,7 +899,7 @@ catch {
     [void]$rollbackErrors.Add('检测到非本事务 Codex，配置快照未覆盖当前文件')
   } elseif ($configRollbackReady -and (Test-Path -LiteralPath $configRollback -PathType Leaf)) {
     try {
-      $currentConfigHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $script:ConfigPath).Hash
+      $currentConfigHash = Get-CodexWindowsFileHashWithRetry -Path $script:ConfigPath
       if ($currentConfigHash -eq $configRollbackHash) {
         $configRestored = $true
       } elseif ([string]::IsNullOrWhiteSpace($configInstalledHash)) {

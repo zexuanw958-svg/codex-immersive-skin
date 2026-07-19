@@ -45,6 +45,20 @@ test("Windows start requires restart authorization and binds CDP to loopback", a
   assert.match(source, /Stop-TransactionCodex/i);
   assert.match(source, /Restore-ConfigSnapshot/i);
   assert.match(source, /\[IO\.File\]::Replace/i);
+  assert.match(source, /\[IO\.File\]::Replace\(\$SourcePath,\s*\$DestinationPath,\s*\$BackupPath\)/i,
+    "PowerShell 5.1 rollback must pass a real backup path to File.Replace");
+  assert.match(source, /Invoke-CodexWindowsFileReplace\s+-SourcePath\s+\$temporary[\s\S]+-BackupPath\s+\$displaced/i,
+    "rollback must route the unique displaced path through the replace wrapper");
+  assert.doesNotMatch(source, /\[IO\.File\]::Replace\([^\r\n]+,\s*\$null\)/i,
+    "PowerShell 5.1 binds a null File.Replace backup as an illegal empty path");
+  assert.match(source, /ExpectedCurrentHash/i);
+  assert.match(source, /\$currentConfigHash\s*=\s*Get-CodexWindowsFileHashWithRetry\s+-Path\s+\$script:ConfigPath/i,
+    "the outer failed-Start rollback must not bypass bounded config hash retries");
+  assert.match(source, /Get-CodexTransactionDebugProcesses/i);
+  assert.match(source, /Add-CodexLaunchObservedTransactionProcesses/i);
+  assert.match(source, /ObservedIdentities/i);
+  assert.match(source, /Stop-CodexLaunchContextProcesses/i);
+  assert.match(source, /LaunchContext/i);
   assert.match(source, /Write-EmergencyInjectorState/i);
   const rollbackStart = source.lastIndexOf("$originalError = $_");
   assert.ok(rollbackStart >= 0, "missing outer Start rollback");

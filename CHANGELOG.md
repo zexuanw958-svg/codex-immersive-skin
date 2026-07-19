@@ -11,6 +11,9 @@
 - 修复 Windows 新建对话页 composer 被 flex 自动外边距压缩的问题，并让 Verify 检查编辑区宽度、滚动宽度和控件边界。
 - 修复 Windows PowerShell 5.1 无参数入口与已有快捷方式重装校验的空数组兼容问题。
 - 对 Windows 上经过预期哈希复核的瞬时 `EPERM`/`EACCES`/`EBUSY` 原子重命名增加有界重试。
+- 修复 Store Codex 经短生命周期启动器或 PID 交接后 Start 无法建立调试身份的问题；使用启动基线、时间、唯一事务标记和精确参数重新发现主进程，并记录所有候选供失败回滚逐个核验清理。
+- 修复 Windows PowerShell 5.1 把 `File.Replace(..., $null)` 绑定为非法空路径导致的 Start 配置回滚失败；改用同目录唯一 displaced 备份、逐次 CAS、受限 Windows 错误重试和双哈希验证。
+- 增加启动器交接、多候选失败关闭、真实启动参数、Unicode/空格路径、共享锁、非瞬时替换失败和恢复材料保留回归测试。
 
 ## 1.0.2 — 2026-07-18
 

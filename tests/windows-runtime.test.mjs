@@ -30,6 +30,21 @@ function runPowerShell(command) {
   ], { encoding: "utf8" });
 }
 
+function importPowerShellFunctions(file, names) {
+  const requested = names.map(psQuote).join(", ");
+  return [
+    "$tokens = $null; $errors = $null",
+    `$ast = [Management.Automation.Language.Parser]::ParseFile(${psQuote(file)}, [ref]$tokens, [ref]$errors)`,
+    "if ($errors.Count -ne 0) { throw ($errors | Out-String) }",
+    `$requested = @(${requested})`,
+    "foreach ($name in $requested) {",
+    "  $matches = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true))",
+    "  if ($matches.Count -ne 1) { throw ('Expected one function named ' + $name) }",
+    "  Invoke-Expression $matches[0].Extent.Text",
+    "}",
+  ].join("\n");
+}
+
 test("Windows runtime scripts expose the required fail-closed primitives", async () => {
   const [commonSource, doctorSource, startSource, restoreSource] = await Promise.all([
     fs.readFile(common, "utf8"),
@@ -106,6 +121,458 @@ windowsOnly("remaining argument normalization drops PowerShell empty sentinels",
   assert.deepEqual(JSON.parse(result.stdout.trim()), {
     count: 2,
     values: ["--reload", "9341"],
+  });
+});
+
+windowsOnly("failed Start restores a config snapshot through File.Replace on PowerShell 5.1 paths", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "immersive rollback 中文 "));
+  try {
+    const snapshot = path.join(directory, "snapshot before start.toml");
+    const config = path.join(directory, "config target.toml");
+    await fs.writeFile(snapshot, "before\n", "utf8");
+    await fs.writeFile(config, "during\n", "utf8");
+    const command = [
+      importPowerShellFunctions(start, [
+        "Test-CodexWindowsTransientReplaceError",
+        "Get-CodexWindowsFileHashWithRetry",
+        "Invoke-CodexWindowsFileReplace",
+        "Restore-ConfigSnapshot",
+      ]),
+      `$script:ConfigPath = ${psQuote(config)}`,
+      `$snapshot = ${psQuote(snapshot)}`,
+      "$snapshotHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $snapshot).Hash",
+      "$currentHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $script:ConfigPath).Hash",
+      "Restore-ConfigSnapshot -SnapshotPath $snapshot -SnapshotHash $snapshotHash -ExpectedCurrentHash $currentHash",
+      "@(Get-ChildItem -LiteralPath (Split-Path -Parent $script:ConfigPath) -Force | Sort-Object Name | Select-Object -ExpandProperty Name) | ConvertTo-Json -Compress",
+    ].join("\n");
+    const result = runPowerShell(command);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(await fs.readFile(config, "utf8"), "before\n");
+    assert.deepEqual(JSON.parse(result.stdout.trim()), [
+      "config target.toml",
+      "snapshot before start.toml",
+    ]);
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+windowsOnly("config snapshot replacement retries a transient sharing violation with CAS intact", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "immersive-replace-retry-"));
+  const holderReady = path.join(directory, "holder-ready");
+  const snapshot = path.join(directory, "snapshot.toml");
+  const config = path.join(directory, "config.toml");
+  let holder;
+  try {
+    await fs.writeFile(snapshot, "before\n", "utf8");
+    await fs.writeFile(config, "during\n", "utf8");
+    const holderCommand = [
+      `$stream = [IO.File]::Open(${psQuote(config)}, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)`,
+      `[IO.File]::WriteAllText(${psQuote(holderReady)}, 'ready')`,
+      "try { Start-Sleep -Milliseconds 1200 } finally { $stream.Dispose() }",
+    ].join("\n");
+    holder = spawn("powershell.exe", [
+      "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", holderCommand,
+    ], { windowsHide: true, stdio: "ignore" });
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      try {
+        await fs.access(holderReady);
+        break;
+      } catch {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    }
+    await fs.access(holderReady);
+
+    const command = [
+      importPowerShellFunctions(start, [
+        "Test-CodexWindowsTransientReplaceError",
+        "Get-CodexWindowsFileHashWithRetry",
+        "Invoke-CodexWindowsFileReplace",
+        "Restore-ConfigSnapshot",
+      ]),
+      `$script:ConfigPath = ${psQuote(config)}`,
+      `$snapshot = ${psQuote(snapshot)}`,
+      "$snapshotHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $snapshot).Hash",
+      "$currentHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $script:ConfigPath).Hash",
+      "$script:replaceAttempts = 0",
+      "function Invoke-CodexWindowsFileReplace {",
+      "  param([string]$SourcePath, [string]$DestinationPath, [string]$BackupPath)",
+      "  $script:replaceAttempts++",
+      "  [IO.File]::Replace($SourcePath, $DestinationPath, $BackupPath)",
+      "}",
+      "Restore-ConfigSnapshot -SnapshotPath $snapshot -SnapshotHash $snapshotHash -ExpectedCurrentHash $currentHash",
+      "$script:replaceAttempts",
+    ].join("\n");
+    const result = runPowerShell(command);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.ok(Number.parseInt(result.stdout.trim(), 10) >= 2,
+      `expected File.Replace itself to retry, got: ${result.stdout}`);
+    assert.equal(await fs.readFile(config, "utf8"), "before\n");
+  } finally {
+    if (holder && holder.exitCode === null) holder.kill();
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+windowsOnly("config snapshot replacement does not retry a non-transient replace failure", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "immersive-replace-hard-failure-"));
+  try {
+    const snapshot = path.join(directory, "snapshot.toml");
+    const config = path.join(directory, "config.toml");
+    await fs.writeFile(snapshot, "before\n", "utf8");
+    await fs.writeFile(config, "during\n", "utf8");
+    const command = [
+      importPowerShellFunctions(start, [
+        "Test-CodexWindowsTransientReplaceError",
+        "Get-CodexWindowsFileHashWithRetry",
+        "Invoke-CodexWindowsFileReplace",
+        "Restore-ConfigSnapshot",
+      ]),
+      `$script:ConfigPath = ${psQuote(config)}`,
+      `$snapshot = ${psQuote(snapshot)}`,
+      "$snapshotHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $snapshot).Hash",
+      "$currentHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $script:ConfigPath).Hash",
+      "$script:replaceAttempts = 0",
+      "function Invoke-CodexWindowsFileReplace {",
+      "  param([string]$SourcePath, [string]$DestinationPath, [string]$BackupPath)",
+      "  $script:replaceAttempts++",
+      "  throw [ArgumentException]::new('simulated non-transient replace failure')",
+      "}",
+      "$failedClosed = $false",
+      "try { Restore-ConfigSnapshot -SnapshotPath $snapshot -SnapshotHash $snapshotHash -ExpectedCurrentHash $currentHash } catch { $failedClosed = $true }",
+      "[pscustomobject]@{ failedClosed=$failedClosed; replaceAttempts=$script:replaceAttempts; names=@(Get-ChildItem -LiteralPath (Split-Path -Parent $script:ConfigPath) -Force | Sort-Object Name | Select-Object -ExpandProperty Name) } | ConvertTo-Json -Compress",
+    ].join("\n");
+    const result = runPowerShell(command);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.deepEqual(JSON.parse(result.stdout.trim()), {
+      failedClosed: true,
+      replaceAttempts: 1,
+      names: ["config.toml", "snapshot.toml"],
+    });
+    assert.equal(await fs.readFile(config, "utf8"), "during\n");
+    assert.equal(await fs.readFile(snapshot, "utf8"), "before\n");
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+windowsOnly("config snapshot replacement retries a transient CAS hash read denial", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "immersive-hash-retry-"));
+  try {
+    const snapshot = path.join(directory, "snapshot.toml");
+    const config = path.join(directory, "config.toml");
+    await fs.writeFile(snapshot, "before\n", "utf8");
+    await fs.writeFile(config, "during\n", "utf8");
+    const command = [
+      importPowerShellFunctions(start, [
+        "Test-CodexWindowsTransientReplaceError",
+        "Get-CodexWindowsFileHashWithRetry",
+        "Invoke-CodexWindowsFileReplace",
+        "Restore-ConfigSnapshot",
+      ]),
+      `$script:ConfigPath = ${psQuote(config)}`,
+      `$snapshot = ${psQuote(snapshot)}`,
+      "$snapshotHash = (Microsoft.PowerShell.Utility\\Get-FileHash -Algorithm SHA256 -LiteralPath $snapshot).Hash",
+      "$currentHash = (Microsoft.PowerShell.Utility\\Get-FileHash -Algorithm SHA256 -LiteralPath $script:ConfigPath).Hash",
+      "$script:hashAttempts = 0",
+      "function Get-FileHash {",
+      "  param([string]$Algorithm, [string]$LiteralPath)",
+      "  if ($LiteralPath -eq $script:ConfigPath) {",
+      "    $script:hashAttempts++",
+      "    if ($script:hashAttempts -eq 1) { throw [UnauthorizedAccessException]::new('simulated transient hash denial') }",
+      "  }",
+      "  Microsoft.PowerShell.Utility\\Get-FileHash -Algorithm $Algorithm -LiteralPath $LiteralPath",
+      "}",
+      "Restore-ConfigSnapshot -SnapshotPath $snapshot -SnapshotHash $snapshotHash -ExpectedCurrentHash $currentHash",
+      "[pscustomobject]@{ hashAttempts=$script:hashAttempts; content=[IO.File]::ReadAllText($script:ConfigPath) } | ConvertTo-Json -Compress",
+    ].join("\n");
+    const result = runPowerShell(command);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const value = JSON.parse(result.stdout.trim());
+    assert.ok(value.hashAttempts >= 2);
+    assert.equal(value.content, "before\n");
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+windowsOnly("config snapshot replacement refuses a changed expected hash and preserves recovery bytes", async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), "immersive-replace-cas-"));
+  try {
+    const snapshot = path.join(directory, "snapshot.toml");
+    const config = path.join(directory, "config.toml");
+    await fs.writeFile(snapshot, "before\n", "utf8");
+    await fs.writeFile(config, "concurrent\n", "utf8");
+    const command = [
+      importPowerShellFunctions(start, [
+        "Test-CodexWindowsTransientReplaceError",
+        "Get-CodexWindowsFileHashWithRetry",
+        "Invoke-CodexWindowsFileReplace",
+        "Restore-ConfigSnapshot",
+      ]),
+      `$script:ConfigPath = ${psQuote(config)}`,
+      `$snapshot = ${psQuote(snapshot)}`,
+      "$snapshotHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $snapshot).Hash",
+      "$wrongExpectedHash = ('0' * 64)",
+      "$failedClosed = $false",
+      "try { Restore-ConfigSnapshot -SnapshotPath $snapshot -SnapshotHash $snapshotHash -ExpectedCurrentHash $wrongExpectedHash } catch { $failedClosed = $true }",
+      "[pscustomobject]@{ failedClosed=$failedClosed; configHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $script:ConfigPath).Hash; snapshotHash=(Get-FileHash -Algorithm SHA256 -LiteralPath $snapshot).Hash } | ConvertTo-Json -Compress",
+    ].join("\n");
+    const result = runPowerShell(command);
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    const value = JSON.parse(result.stdout.trim());
+    assert.equal(value.failedClosed, true);
+    assert.equal(value.snapshotHash.length, 64);
+    assert.notEqual(value.configHash, value.snapshotHash);
+    assert.equal(await fs.readFile(config, "utf8"), "concurrent\n");
+    assert.equal(await fs.readFile(snapshot, "utf8"), "before\n");
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
+
+windowsOnly("a short-lived launcher hands CDP identity to the transaction-created Codex main process", () => {
+  const command = [
+    importPowerShellFunctions(start, [
+      "Get-CodexProcessIdentityKey",
+      "Add-CodexLaunchObservedIdentity",
+      "Get-CodexTransactionDebugProcesses",
+      "Add-CodexLaunchObservedTransactionProcesses",
+      "Wait-VerifiedCdpEndpoint",
+    ]),
+    "$package = [pscustomobject]@{ AppExecutable = 'verified-chatgpt.exe' }",
+    "$launch = [pscustomobject]@{",
+    "  Process = [pscustomobject]@{ Id = 100; HasExited = $true }",
+    "  StartedAtUtc = '2026-07-19T00:00:00.0000000Z'",
+    "  ExcludedIdentityKeys = @()",
+    "  LaunchToken = 'launch-token'",
+      "  OriginalIdentity = $null",
+      "  Identity = $null",
+      "  ObservedIdentities = @()",
+      "}",
+    "function New-TestIdentity([int]$ProcessId, [string]$StartedAt, [bool]$DebugArguments) {",
+    "  [pscustomobject]@{",
+    "    ProcessId = $ProcessId",
+    "    StartTimeUtc = $StartedAt",
+    "    CommandLine = ('pid-' + $ProcessId)",
+    "    Verified = $true",
+    "    DebugArguments = $DebugArguments",
+    "    LaunchToken = 'launch-token'",
+    "  }",
+    "}",
+    "$first = New-TestIdentity 200 '2026-07-19T00:00:01.0000000Z' $true",
+    "$final = New-TestIdentity 300 '2026-07-19T00:00:02.0000000Z' $true",
+    "$script:poll = 0",
+    "function Get-VerifiedCodexMainProcesses {",
+    "  $script:poll++",
+    "  $identity = if ($script:poll -eq 1) { $first } else { $final }",
+    "  return @([pscustomobject]@{ Process = [pscustomobject]@{ Id = $identity.ProcessId }; Identity = $identity })",
+    "}",
+    "function Get-CodexWindowsProcessIdentity([int]$ProcessId) {",
+    "  if ($ProcessId -eq 200) { return $first }",
+    "  if ($ProcessId -eq 300) { return $final }",
+    "  throw 'process exited'",
+    "}",
+    "function Test-VerifiedCodexMainIdentity($Identity, $PackageInfo) { return [bool]$Identity.Verified }",
+    "function Test-CodexDebugIdentityForPort($Identity, [int]$Port, [string]$LaunchToken) { return [bool]$Identity.DebugArguments -and $Port -eq 9341 -and $Identity.LaunchToken -eq $LaunchToken }",
+    "function Test-VerifiedCdpEndpoint([int]$Port, $PackageInfo) { return $script:launch.Identity.ProcessId -eq 300 }",
+    "function Start-Sleep { param([int]$Milliseconds) }",
+    "$ok = Wait-VerifiedCdpEndpoint -Port 9341 -PackageInfo $package -LaunchContext $launch -TimeoutSeconds 1",
+    "[pscustomobject]@{ ok = $ok; processId = $launch.Identity.ProcessId; polls = $script:poll } | ConvertTo-Json -Compress",
+  ].join("\n");
+  const result = runPowerShell(command);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.deepEqual(JSON.parse(result.stdout.trim()), {
+    ok: true,
+    processId: 300,
+    polls: 2,
+  });
+});
+
+windowsOnly("Start builds a real handoff context with exact transaction arguments", () => {
+  const command = [
+    `. ${psQuote(common)}`,
+    "Initialize-CodexWindowsNative",
+    importPowerShellFunctions(start, [
+      "Test-CodexDebugIdentityForPort",
+      "Get-CodexProcessIdentityKey",
+      "Add-CodexLaunchObservedIdentity",
+      "Get-CodexTransactionDebugProcesses",
+      "New-CodexLaunchContext",
+      "Start-CodexWithCdp",
+      "Add-CodexLaunchObservedTransactionProcesses",
+      "Wait-VerifiedCdpEndpoint",
+    ]),
+    "$package = [pscustomobject]@{ AppExecutable = 'C:\\Program Files\\WindowsApps\\OpenAI.Codex\\app\\ChatGPT.exe' }",
+    "$script:started = $false",
+    "$script:capturedArguments = @()",
+    "function Get-VerifiedCodexMainProcesses {",
+    "  if (-not $script:started -or $null -eq $script:candidate) { return @() }",
+    "  return @([pscustomobject]@{ Process=[pscustomobject]@{ Id=$script:candidate.ProcessId }; Identity=$script:candidate })",
+    "}",
+    "function Start-Process {",
+    "  param([string]$FilePath, [string[]]$ArgumentList, [switch]$PassThru)",
+    "  $script:capturedFile = $FilePath",
+    "  $script:capturedArguments = @($ArgumentList)",
+    "  $script:started = $true",
+    "  return [pscustomobject]@{ Id=100; HasExited=$true }",
+    "}",
+    "$launch = New-CodexLaunchContext",
+    "$null = Start-CodexWithCdp -Port 9341 -PackageInfo $package -LaunchContext $launch",
+    "$candidateStart = ([DateTime]::Parse($launch.StartedAtUtc).ToUniversalTime().AddMilliseconds(1)).ToString('o')",
+    "$candidateLine = ('\"' + $script:capturedFile + '\" ' + ($script:capturedArguments -join ' '))",
+    "$script:candidate = [pscustomobject]@{ ProcessId=200; StartTimeUtc=$candidateStart; CommandLine=$candidateLine; Verified=$true }",
+    "function Get-CodexWindowsProcessIdentity([int]$ProcessId) { if ($ProcessId -eq 200) { return $script:candidate }; throw 'launcher exited' }",
+    "function Test-VerifiedCodexMainIdentity($Identity, $PackageInfo) { return [bool]$Identity.Verified }",
+    "function Test-VerifiedCdpEndpoint([int]$Port, $PackageInfo) { return $true }",
+    "$ok = Wait-VerifiedCdpEndpoint -Port 9341 -PackageInfo $package -LaunchContext $launch -TimeoutSeconds 1",
+    "[pscustomobject]@{ ok=$ok; started=$launch.Started; processId=$launch.Identity.ProcessId; observed=@($launch.ObservedIdentities).Count; file=$script:capturedFile; arguments=$script:capturedArguments; token=$launch.LaunchToken } | ConvertTo-Json -Compress",
+  ].join("\n");
+  const result = runPowerShell(command);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const value = JSON.parse(result.stdout.trim());
+  assert.equal(value.ok, true);
+  assert.equal(value.started, true);
+  assert.equal(value.processId, 200);
+  assert.equal(value.observed, 1);
+  assert.equal(value.file, "C:\\Program Files\\WindowsApps\\OpenAI.Codex\\app\\ChatGPT.exe");
+  assert.deepEqual(value.arguments.slice(0, 2), [
+    "--remote-debugging-address=127.0.0.1",
+    "--remote-debugging-port=9341",
+  ]);
+  assert.equal(value.arguments.length, 3);
+  assert.match(value.arguments[2], /^--codex-immersive-launch-token=[0-9a-f]{32}$/);
+  assert.equal(value.arguments[2], `--codex-immersive-launch-token=${value.token}`);
+});
+
+windowsOnly("transaction Codex discovery rejects baseline, pre-launch, and argument-losing processes", () => {
+  const command = [
+    importPowerShellFunctions(start, [
+      "Get-CodexProcessIdentityKey",
+      "Get-CodexTransactionDebugProcesses",
+    ]),
+    "function New-TestIdentity([int]$ProcessId, [string]$StartedAt, [bool]$DebugArguments) {",
+    "  [pscustomobject]@{ ProcessId=$ProcessId; StartTimeUtc=$StartedAt; CommandLine=('pid-' + $ProcessId); DebugArguments=$DebugArguments; LaunchToken='launch-token' }",
+    "}",
+    "$baseline = New-TestIdentity 10 '2026-07-19T00:00:01.0000000Z' $true",
+    "$preLaunch = New-TestIdentity 20 '2026-07-18T23:59:59.0000000Z' $true",
+    "$lostArguments = New-TestIdentity 30 '2026-07-19T00:00:02.0000000Z' $false",
+    "$eligible = New-TestIdentity 40 '2026-07-19T00:00:03.0000000Z' $true",
+    "$script:entries = @($baseline, $preLaunch, $lostArguments, $eligible)",
+    "function Get-VerifiedCodexMainProcesses { return @($script:entries | ForEach-Object { [pscustomobject]@{ Process=[pscustomobject]@{ Id=$_.ProcessId }; Identity=$_ } }) }",
+    "function Test-CodexDebugIdentityForPort($Identity, [int]$Port, [string]$LaunchToken) { return [bool]$Identity.DebugArguments -and $Port -eq 9341 -and $Identity.LaunchToken -eq $LaunchToken }",
+    "$excluded = @(Get-CodexProcessIdentityKey -Identity $baseline)",
+    "$found = @(Get-CodexTransactionDebugProcesses -Port 9341 -PackageInfo ([pscustomobject]@{}) -StartedAtUtc ([DateTime]'2026-07-19T00:00:00Z') -ExcludedIdentityKeys $excluded -LaunchToken 'launch-token')",
+    "[pscustomobject]@{ count=$found.Count; processId=$found[0].Identity.ProcessId } | ConvertTo-Json -Compress",
+  ].join("\n");
+  const result = runPowerShell(command);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.deepEqual(JSON.parse(result.stdout.trim()), { count: 1, processId: 40 });
+});
+
+windowsOnly("transaction Codex discovery fails closed when more than one new debug main appears", () => {
+  const command = [
+    importPowerShellFunctions(start, [
+      "Get-CodexProcessIdentityKey",
+      "Add-CodexLaunchObservedIdentity",
+      "Get-CodexTransactionDebugProcesses",
+      "Add-CodexLaunchObservedTransactionProcesses",
+      "Wait-VerifiedCdpEndpoint",
+      "Stop-CodexLaunchContextProcesses",
+    ]),
+    "$launch = [pscustomobject]@{ Process=[pscustomobject]@{ Id=100; HasExited=$true }; Started=$true; StartedAtUtc='2026-07-19T00:00:00.0000000Z'; ExcludedIdentityKeys=@(); LaunchToken='launch-token'; OriginalIdentity=$null; Identity=$null; ObservedIdentities=@() }",
+    "$one = [pscustomobject]@{ ProcessId=200; StartTimeUtc='2026-07-19T00:00:01.0000000Z'; CommandLine='one'; DebugArguments=$true; LaunchToken='launch-token' }",
+    "$two = [pscustomobject]@{ ProcessId=300; StartTimeUtc='2026-07-19T00:00:02.0000000Z'; CommandLine='two'; DebugArguments=$true; LaunchToken='launch-token' }",
+    "function Get-VerifiedCodexMainProcesses { return @([pscustomobject]@{Identity=$one}, [pscustomobject]@{Identity=$two}) }",
+    "function Get-CodexWindowsProcessIdentity([int]$ProcessId) { if ($ProcessId -eq 200) { return $one }; if ($ProcessId -eq 300) { return $two }; throw 'missing' }",
+    "function Test-VerifiedCodexMainIdentity($Identity, $PackageInfo) { return $true }",
+    "function Test-CodexDebugIdentityForPort($Identity, [int]$Port, [string]$LaunchToken) { return [bool]$Identity.DebugArguments -and $Identity.LaunchToken -eq $LaunchToken }",
+    "$failedClosed = $false",
+    "try { $null = Wait-VerifiedCdpEndpoint -Port 9341 -PackageInfo ([pscustomobject]@{}) -LaunchContext $launch -TimeoutSeconds 1 } catch { $failedClosed = $_.Exception.Message -match '多个' }",
+    "$script:stopped = @()",
+    "function Stop-TransactionCodex($Identity, $PackageInfo) { $script:stopped += [int]$Identity.ProcessId; return $true }",
+    "$cleanupOk = Stop-CodexLaunchContextProcesses -LaunchContext $launch -PackageInfo ([pscustomobject]@{})",
+    "[pscustomobject]@{ failedClosed=$failedClosed; observed=@($launch.ObservedIdentities | ForEach-Object ProcessId); cleanupOk=$cleanupOk; stopped=@($script:stopped) } | ConvertTo-Json -Compress",
+  ].join("\n");
+  const result = runPowerShell(command);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.deepEqual(JSON.parse(result.stdout.trim()), {
+    failedClosed: true,
+    observed: [200, 300],
+    cleanupOk: true,
+    stopped: [200, 300],
+  });
+});
+
+windowsOnly("a post-wait transaction main is captured before outer uniqueness rejection", () => {
+  const command = [
+    importPowerShellFunctions(start, [
+      "Get-CodexProcessIdentityKey",
+      "Add-CodexLaunchObservedIdentity",
+      "Get-CodexTransactionDebugProcesses",
+      "Add-CodexLaunchObservedTransactionProcesses",
+      "Wait-VerifiedCdpEndpoint",
+      "Stop-CodexLaunchContextProcesses",
+    ]),
+    "$package = [pscustomobject]@{}",
+    "$launch = [pscustomobject]@{ Process=[pscustomobject]@{ Id=100; HasExited=$true }; Started=$true; StartedAtUtc='2026-07-19T00:00:00.0000000Z'; ExcludedIdentityKeys=@(); LaunchToken='launch-token'; OriginalIdentity=$null; Identity=$null; ObservedIdentities=@() }",
+    "$one = [pscustomobject]@{ ProcessId=200; StartTimeUtc='2026-07-19T00:00:01.0000000Z'; CommandLine='one'; DebugArguments=$true; LaunchToken='launch-token' }",
+    "$two = [pscustomobject]@{ ProcessId=300; StartTimeUtc='2026-07-19T00:00:02.0000000Z'; CommandLine='two'; DebugArguments=$true; LaunchToken='launch-token' }",
+    "$script:phase = 'wait'",
+    "function Get-VerifiedCodexMainProcesses { $identity = if ($script:phase -eq 'wait') { $one } else { $two }; return @([pscustomobject]@{Identity=$identity}) }",
+    "function Get-CodexWindowsProcessIdentity([int]$ProcessId) { if ($ProcessId -eq 200) { return $one }; if ($ProcessId -eq 300) { return $two }; throw 'missing' }",
+    "function Test-VerifiedCodexMainIdentity($Identity, $PackageInfo) { return $true }",
+    "function Test-CodexDebugIdentityForPort($Identity, [int]$Port, [string]$LaunchToken) { return [bool]$Identity.DebugArguments -and $Identity.LaunchToken -eq $LaunchToken }",
+    "function Test-VerifiedCdpEndpoint([int]$Port, $PackageInfo) { return $true }",
+    "$ok = Wait-VerifiedCdpEndpoint -Port 9341 -PackageInfo $package -LaunchContext $launch -TimeoutSeconds 1",
+    "$script:phase = 'after'",
+    "$unexpected = @(Get-VerifiedCodexMainProcesses -PackageInfo $package)",
+    "$captured = @(Add-CodexLaunchObservedTransactionProcesses -Entries $unexpected -Port 9341 -PackageInfo $package -LaunchContext $launch)",
+    "$script:stopped = @()",
+    "function Stop-TransactionCodex($Identity, $PackageInfo) { $script:stopped += [int]$Identity.ProcessId; return $true }",
+    "$cleanupOk = Stop-CodexLaunchContextProcesses -LaunchContext $launch -PackageInfo $package",
+    "[pscustomobject]@{ ok=$ok; captured=@($captured | ForEach-Object ProcessId); observed=@($launch.ObservedIdentities | ForEach-Object ProcessId); cleanupOk=$cleanupOk; stopped=@($script:stopped) } | ConvertTo-Json -Compress",
+  ].join("\n");
+  const result = runPowerShell(command);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.deepEqual(JSON.parse(result.stdout.trim()), {
+    ok: true,
+    captured: [300],
+    observed: [200, 300],
+    cleanupOk: true,
+    stopped: [200, 300],
+  });
+});
+
+windowsOnly("transaction debug identity requires one exact loopback, port, and launch-token argument", () => {
+  const command = [
+    `. ${psQuote(common)}`,
+    "Initialize-CodexWindowsNative",
+    importPowerShellFunctions(start, ["Test-CodexDebugIdentityForPort"]),
+    "$exe = 'C:\\Program Files\\WindowsApps\\OpenAI.Codex\\app\\ChatGPT.exe'",
+    "$token = '7d50bbfb91c64c56a619589938777233'",
+    "function Test-Command([string[]]$Arguments) {",
+    "  $line = ('\"' + $exe + '\" ' + ($Arguments -join ' '))",
+    "  $identity = [pscustomobject]@{ CommandLine = $line }",
+    "  return Test-CodexDebugIdentityForPort -Identity $identity -Port 9341 -LaunchToken $token",
+    "}",
+    "$base = @('--remote-debugging-address=127.0.0.1', '--remote-debugging-port=9341', ('--codex-immersive-launch-token=' + $token))",
+    "[pscustomobject]@{",
+    "  exact = Test-Command $base",
+    "  duplicatePort = Test-Command @($base + '--remote-debugging-port=9441')",
+    "  duplicateAddress = Test-Command @($base + '--remote-debugging-address=0.0.0.0')",
+    "  wrongToken = Test-Command @($base[0..1] + '--codex-immersive-launch-token=wrong')",
+    "} | ConvertTo-Json -Compress",
+  ].join("\n");
+  const result = runPowerShell(command);
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.deepEqual(JSON.parse(result.stdout.trim()), {
+    exact: true,
+    duplicatePort: false,
+    duplicateAddress: false,
+    wrongToken: false,
   });
 });
 

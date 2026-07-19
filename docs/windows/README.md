@@ -2,7 +2,7 @@
 
 > **非官方项目：** 本项目不是 OpenAI 发布的项目，与 OpenAI 不存在合作、授权或背书关系。项目基于 [Fei-Away/Codex-Dream-Skin](https://github.com/Fei-Away/Codex-Dream-Skin) 的 MIT 版本修改，编辑器引擎与注入框架并非作者从零开发；创意参考 [HeiGeAi/codex-miku-theme](https://github.com/HeiGeAi/codex-miku-theme) 以及公众号「黑哥Ai」。
 
-本指南适用于 Microsoft Store/MSIX 形态的 Codex Windows 应用。当前自动化检查环境为 Windows 11 x64、Windows PowerShell 5.1；完整真机生命周期及准确版本边界见[《Windows 适配报告》](适配报告.md)。Windows 10、Windows on ARM 和非 Store 安装形态如未在报告中列为“通过”，均属于未验证范围。
+本指南适用于 Microsoft Store/MSIX 形态的 Codex Windows 应用。当前自动化检查环境为 Windows 11 x64、Windows PowerShell 5.1；完整真机生命周期已复测到 Store Codex `26.715.3651.0`，准确版本边界见[《Windows 适配报告》](适配报告.md)。Windows 10、Windows on ARM 和非 Store 安装形态如未在报告中列为“通过”，均属于未验证范围。
 
 ## 开始前检查
 
@@ -118,6 +118,8 @@ powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy RemoteSigned 
 
 Start 会重新发现并验证 Store/MSIX 包、Codex 自身 Node.js 和保存的状态。只要 Codex 已运行，Start 都会在修改配置前要求本次重启授权，以避免 Codex 与工具并发写配置；桌面入口会先显示 Yes/No 确认框。命令行自动化只有显式传入 `--restart-existing` 才授权本次重启。
 
+Store 启动入口可能先返回短生命周期启动器，再把请求交给另一个 Codex 主进程。Start 不再假定 `Start-Process` 返回的 PID 就是最终主进程：它记录启动前基线、UTC 时间和一次性事务标记，只接纳唯一一个新出现、Store/MSIX 身份通过且精确携带 loopback、端口和事务标记参数的主进程。出现多个候选、参数丢失或身份变化时会失败关闭，并只按已重新核验的事务身份逐个清理。
+
 CDP 只绑定 `127.0.0.1`，默认从端口 `9341` 开始选择可用端口。CDP 是仅限本机但没有额外认证的调试接口；主题运行期间不要执行来源不明的本地程序，不用主题时通过 Restore 关闭当前会话。
 
 ## Verify
@@ -158,6 +160,8 @@ Get-Content -Raw "$env:LOCALAPPDATA\CodexImmersiveSkin\last-verify.json" |
 恢复后再次运行只读 doctor。只有 `statePresent=false`、`cdpVerified=false`、`live=false` 才能记录为主题会话已关闭；如果 doctor 仍报告端口或状态，按恢复失败处理。
 
 恢复失败时不要手动按进程名结束程序；选择性配置备份会保留到整笔恢复提交，因此应保留状态和日志后用同一 Restore 命令重试。若要彻底清理，应在这次完整恢复时运行 `& ".\Restore Codex Immersive Skin.cmd" --uninstall`，让同一事务同时删除本项目创建且身份匹配的四个桌面快捷方式；它不删除安装目录或用户主题。项目不自动删除私人主题、日志或验证截图；用户在成功 Restore 并确认不再需要再次定制后，可在文件资源管理器中自行删除前述两个精确目录及自己保存的截图，删除前再次核对路径。
+
+Start 失败时的完整配置快照回滚使用同目录临时源和唯一 displaced 备份路径调用 PowerShell 5.1 的 `File.Replace`。每次替换前都重新检查预期哈希；只对 Windows access denied、sharing violation 和 lock violation 做有限重试。恢复后的目标与 displaced 文件都必须匹配预期哈希，验证完成后才清理 displaced 文件；并发修改或非瞬时错误不会被重试覆盖。
 
 ## 安全边界与已知限制
 
